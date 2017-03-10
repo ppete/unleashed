@@ -1,3 +1,6 @@
+The BLAZE Concurrent Data Structure Library
+-------------------------------------------
+
 ./include: contains the BLAZE library files.
 
 ./example: contains sample code and a sample AndroidStudio project that uses
