@@ -1,6 +1,8 @@
 ./include: contains the BLAZE library files.
-./example: contains sample code and a sample AndroidStudio project that uses 
+
+./example: contains sample code and a sample AndroidStudio project that uses
            BLAZE (BlazeTest.tar.bz2). 
+           
 ./scripts: contaains test scripts.
 
 BlazeTest.tar.bz2
