@@ -8,8 +8,8 @@ The BLAZE Concurrent Data Structure Library
            
 ./scripts: contains test scripts.
 
-BlazeTest.tar.bz2
------------------
+Integration on Android - BlazeTest.tar.bz2
+------------------------------------------
 For installation, AndroidStudio 1.3, gradle-2.5 are required. 
 When importing the project, the location of gradle-2.5 and the SDK may need to 
 be modified. The project expects a environment variable BLAZE_HOME be set to 
