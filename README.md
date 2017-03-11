@@ -6,7 +6,7 @@ The BLAZE Concurrent Data Structure Library
 ./example: contains sample code and a sample AndroidStudio project that uses
            BLAZE (BlazeTest.tar.bz2). 
            
-./scripts: contaains test scripts.
+./scripts: contains test scripts.
 
 BlazeTest.tar.bz2
 -----------------
