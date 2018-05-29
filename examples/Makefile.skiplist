@@ -37,7 +37,25 @@ TARGET=skiplist.bin
 INCLUDE=../include
 DEFINES=-D$(TEST_ALLOC)=1
 
-DEFINES+= -D$(TEST_CONTAINER)=1
+ifeq ($(TEST_HTM),)
+  DEFINES+= -D$(TEST_CONTAINER)=1
+	TXFLAGS=
+else
+  DEFINES+= -DHTM_ENABLED=1
+
+  ifeq ($(THISARCH),)
+    $(error THISARCH not set (needs to be INTEL or POWER8))
+  endif
+
+	ifeq ($(THISARCH), INTEL)
+		TXFLAGS=-mrtm
+	endif
+
+	ifeq ($(THISARCH), POWER8)
+		TXFLAGS=-mhtm
+	endif
+endif
+
 CXXFLAGS=-std=c++11 -Wall -Wextra -pedantic -pthread
 
 ifeq ($(TEST_ALLOC),TEST_GC_MANAGER)

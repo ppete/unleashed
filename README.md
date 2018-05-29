@@ -17,3 +17,8 @@ BLAZE's top directory. For running the code on an actual device, the device
 needs to support NDK >= r10, otherwise some standard library functions cannot be 
 found (e.g., rand).
 
+Contributors:
+
+Nicholas Dzugan
+Christina Peterson
+Amalee Wilson

@@ -1,34 +1,19 @@
-/// \brief Memory managers for fine-grained lock based and lock-free data structures
+/// \brief     Transaction and memory managers
 ///
-/// \details - just_alloc is an allocator that only allocates, but never frees memory.
-///          - pub_scan_manager (PS) is a memory manager that uses
+/// \details - pub_scan_manager (PS) is a memory manager that uses
 ///            publish and scan techniques, similar to M. Michael's hazard pointers
 ///            and Herlihy et al.'s repeated offender implementation.
 ///            This technique implies sequentially consistent reads of pointers/elements.
-///          - epoch_manager (EP) is a memory manager that uses epochs.
-///            EP requires less global synchronization than PS.
-///            but does not provide upper bound guarantees on the number of
-///            non reclaimable memory. I.e., if a thread terminates in the middle of an
-///            operation that uses EP, no memory can be freed.
-///          - gc_manager (GC) is a memory manager that works in conjunction with
-///            a garbage collector (e.g., Boehm's collector). In essence, GC forwards all
-///            calls to the set allocator, which is responsible for releasing the memory
-///            when it can no longer be reached. Using GC together with a standard
-///            allocator leads to early and HAZARDOUS memory deallocations.
-///            To enable the gc_manager, either PMEMORY_GC_ENABLED needs to be defined
-///            or Boehm's gc.h must be included before this file.
-//           - \todo add quiescent arena manager
-/// \author  Nick Dzugan and Peter Pirkelbauer
-/// \email   { ndzugan, pirkelbauer } @ uab.edu
+/// \author  Peter Pirkelbauer
+/// \email   pirkelbauer@uab.edu
 
-#ifndef _PMEMORY_HPP
+#ifndef _TMEMORY_HPP
 
-#define _PMEMORY_HPP 1
+#define _TMEMORY_HPP 1
 
-#if defined(GC_H)
-  // enable GC if Boehms Collector is included before this header file
-  #define PMEMORY_GC_ENABLED 1
-#endif
+#define TXBEGIN
+#define TXEND
+
 
 #include <cassert>
 #include <atomic>
@@ -41,29 +26,6 @@
 
 #include "atomicutil.hpp"
 #include "bitutil.hpp"
-#include "generalutil.hpp"
-
-#ifndef BLAZE_GC_CXX11_THREAD_CONTEXT
-#define BLAZE_GC_CXX11_THREAD_CONTEXT
-  /// \brief If GC is enabled and gc-cxx11/gc_cxx11.hpp was included
-  ///        gc_cxx_thread_context is defined there.
-  ///        Otherwise this introduces a dummy declaration.
-namespace
-{
-  /// \brief dummy thread context when the GC is not used
-  struct gc_cxx_thread_context
-  {
-      /// empty constructor to avoid unused variable warnings
-      gc_cxx_thread_context() {}
-
-    private:
-      /// should not be allocated on the heap.
-      ///   just for documentation, not fool proof.
-      void* operator new(size_t size) = delete;
-  };
-}
-#endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
-
 
 namespace lockfree
 {
@@ -77,11 +39,11 @@ namespace lockfree
     typedef typename _Alloc<_Tp>::template rebind<_Tp> type;
   };
 
-  static const bool FREE_ALWAYS = false; ///< indicates whether the threads should be scanned after
-                                         ///  each pointer deallocation.
-                                         ///  Of course, this should be false, but interestingly
-                                         ///  enough, the overhead seems to be only about 10%
-                                         ///  (for 10 threads) when the data is in cache
+  static const bool FREE_ALWAYS = 0; ///< indicates whether the threads should be scanned after
+                                     ///  each pointer deallocation.
+                                     ///  Of course, this should be false, but interestingly
+                                     ///  enough, the overhead seems to be only about 10%
+                                     ///  (for 10 threads) when the data is in cache
 
 
   //
@@ -99,13 +61,6 @@ namespace lockfree
         alloc.beginop(pins);
       }
 
-      explicit
-      guard(Alloc a)
-      : alloc(a)
-      {
-        alloc.beginop();
-      }
-
       ~guard()
       {
         alloc.endop();
@@ -120,8 +75,7 @@ namespace lockfree
   struct guardless
   {
     template <class Alloc>
-    explicit
-    guardless(Alloc, size_t = 0)
+    guardless(Alloc, size_t)
     {}
   };
 
@@ -174,14 +128,6 @@ namespace lockfree
       typedef typename _Alloc<_Tp>::size_type       size_type;
       typedef typename _Alloc<_Tp>::difference_type difference_type;
 
-      // \pp types added for icc
-      typedef void*                                 void_pointer;
-      typedef const void*                           const_void_pointer;
-      typedef std::false_type                       propagate_on_container_copy_assignment;
-      typedef std::false_type                       propagate_on_container_move_assignment;
-      typedef std::false_type                       propagate_on_container_swap;
-      typedef std::false_type                       is_always_equal;
-
       typedef _Alloc<_Tp>                           base_allocator;
       typedef typename _Alloc<_Tp>::template rebind<void> _AllocVoid;
 
@@ -206,6 +152,7 @@ namespace lockfree
         return alloc.address(x);
       }
 
+      // pointer allocate(size_type n, typename _AllocVoid::const_pointer hint = nullptr)
       pointer allocate(size_type n, std::allocator<void>::const_pointer hint = nullptr)
       {
         return alloc.allocate(n, hint);
@@ -217,7 +164,7 @@ namespace lockfree
         alloc.construct(p, args...);
       }
 
-      void deallocate(pointer p, size_type n)
+      void deallocate (pointer p, size_type n)
       {
         alloc.deallocate(p, n);
       }
@@ -321,61 +268,6 @@ namespace lockfree
   };
 
 
-#ifdef PMEMORY_GC_ENABLED
-  /// \brief simple
-  template <class _Tp, template <class> class _Alloc>
-  struct gc_manager : no_pinwall_base<_Tp>, alloc_base<_Tp, _Alloc>
-  {
-    private:
-      typedef alloc_base<_Tp, _Alloc> base;
-
-    public:
-      // no pinwall
-      typedef collected manager_kind;
-      typedef guardless pinguard;
-
-      // rebind to self
-      template <class U>
-      struct rebind { typedef gc_manager<U, _Alloc> other; };
-
-      /// constructs a gc manager
-      explicit
-      gc_manager(_Alloc<_Tp> alloc)
-      : base(alloc)
-      {}
-
-      /// constructs a gc manager
-      template <class _Up>
-      explicit
-      gc_manager(gc_manager<_Up, _Alloc> other)
-      : base(other)
-      {}
-
-      /// constructs a gc manager
-      gc_manager()
-      : base()
-      {}
-
-      void deallocate(_Tp*, int) {}
-  };
-
-  struct gc_cxx_thread_context
-  {
-    GC_stack_base sb;
-
-    gc_cxx_thread_context()
-    {
-      GC_get_stack_base(&sb);
-      GC_register_my_thread(&sb);
-    }
-
-    ~gc_cxx_thread_context()
-    {
-      GC_unregister_my_thread();
-    }
-  };
-#endif /* PMEMORY_GC_ENABLED */
-
   //
   // Auxiliary lock-free stack implementation
 
@@ -427,7 +319,7 @@ namespace lockfree
         assert(pwentry < base + pinwall_size);
         last.store(pwentry+1, std::memory_order_relaxed); // \mo
 
-        // we confirm later anyhow, so if we do not the most recent value right
+        // we confirm later anyhow, so if we do net the most recent value right
         // away we get it later
         auto           lastval = _ld<std::memory_order_relaxed>(elem);
         _Tp*           confirm = nullptr;
@@ -468,7 +360,7 @@ namespace lockfree
       /// unpins an entry slot range on the pinwall
       void unpin(_Tp const * const elem, int ofs)
       {
-        unused(elem), assert(ofs <= 0);
+        assert(ofs <= 0);
 
         // load one past last valid
         //   relaxed sufficient since this is the only writing thread
@@ -505,7 +397,7 @@ namespace lockfree
       void check(_Tp const * const elem)
       {
         pinwall_entry* const zz = last.load(std::memory_order_relaxed);
-        unused(elem), assert(std::find(base, zz, elem) != zz);
+        assert(std::find(base, zz, elem) != zz);
       }
 
       void unpin_all()
@@ -830,7 +722,7 @@ namespace lockfree
       void deallocate(value_type* obj, size_t num)
       {
         assert(pinWall);
-        unused(num), assert(num == 1); // currently the allocator is limited to a single object
+        assert(num == 1); // currently the allocator is limited to a single object
 
         pinWall->rmvd.push_back(obj);
         ++pinWall->cnt;
@@ -854,6 +746,24 @@ namespace lockfree
             pinWall->next = curr;
           } while (!allPinWalls.compare_exchange_weak(curr, pinWall, std::memory_order_release, std::memory_order_relaxed)); // \mo
         }
+
+
+        // set txsize
+        txstarted = false;
+        txsize = TXMAGICNUMBER;
+        while (txsize > 1 || txstarted)
+        {
+          if (TXBEGIN)
+          {
+            // regular transaction
+            txstarted = true;
+          }
+          else
+          {
+            // conflict handling + retry
+            txsize = txsize / 2;
+          }
+        }
       }
 
       /// \brief pins an atomic pointer
@@ -861,8 +771,17 @@ namespace lockfree
       value_type*
       pin(std::atomic<value_type*>& elem)
       {
-        assert(pinWall);
-        return pinWall->template pin_aux<mo>(elem);
+        if (txsize == 1)
+        {
+          // do the real stuff
+          assert(pinWall);
+          return pinWall->template pin_aux<mo>(elem);
+        }
+        else
+        {
+          // to the tx stuff
+          //   i.e., simply read
+        }
       }
 
       /// \brief pins a uab::MarkablePointer
@@ -935,438 +854,6 @@ namespace lockfree
   thread_local
   pub_scan_data<typename pub_scan_manager<_Tp, _Alloc>::value_type, _Alloc<_Tp> >*
   pub_scan_manager<_Tp, _Alloc>::pinWall(nullptr);
-
-  //
-  // epoch management scheme
-
-  template <class _Tp, class _Alloc>
-  struct release_entry
-  {
-    typedef std::vector<size_t, _Alloc> epoch_vector;
-
-    epoch_vector              epochtime;
-    std::vector<_Tp*, _Alloc> epochptrs;
-
-    void swap(release_entry<_Tp, _Alloc>& other)
-    {
-      epochtime.swap(other.epochtime);
-      epochptrs.swap(other.epochptrs);
-    }
-  };
-
-  template <class _Tp, class _Alloc>
-  struct alignas(CACHELINESZ) epoch_data
-  {
-    static const size_t INITIAL_RECLAIMATION_PERIOD = 20;
-    typedef std::forward_list<release_entry<_Tp, _Alloc> > removal_collection;
-
-    epoch_data<_Tp, _Alloc> const * next;  ///< next thread's data
-    std::atomic<size_t>             epoch; ///< odd numbers indicate busy epochs
-
-    size_t                          collepoch;
-    removal_collection              rmvd;
-    removal_collection              recy;
-
-    size_t reclaimation_increment()
-    {
-      return rmvd.front().epochtime.size() + 8;
-    }
-
-    epoch_data()
-    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvd(1), recy()
-    {
-      assert(!rmvd.empty());
-    }
-  };
-
-
-  static inline
-  bool active(size_t epoch)
-  {
-    return epoch & 1;
-  }
-
-
-  template <class _Tp, class _Alloc>
-  struct passed_epoch_finder
-  {
-    typedef epoch_data<_Tp, _Alloc>                   epoch_data_t;
-    typedef release_entry<_Tp, _Alloc>                release_entry_t;
-    typedef typename epoch_data_t::removal_collection removal_collection;
-    typedef typename release_entry_t::epoch_vector    epoch_vector;
-
-    static bool epoch_passed(size_t freeepoch, size_t currepoch)
-    {
-      return (  (!active(freeepoch))    // not active at the time it was freed
-             || ( currepoch > freeepoch) // or thread has advanced to new epoch
-             );
-    }
-
-    typename epoch_vector::reverse_iterator curraa;
-
-    explicit
-    passed_epoch_finder(epoch_vector& vec)
-    : curraa(vec.rbegin())
-    {}
-
-    bool operator()(typename removal_collection::value_type& entry)
-    {
-      typename epoch_vector::reverse_iterator entryzz = entry.epochtime.rend();
-
-      return entryzz != std::mismatch(entry.epochtime.rbegin(), entryzz, curraa, epoch_passed).first;
-    }
-  };
-
-
-  template <class _FwdIter, class _UnaryPred>
-  _FwdIter fwd_find(_FwdIter before_aa, _FwdIter zz, _UnaryPred pred)
-  {
-    if ( before_aa == zz ) return zz;
-
-    _FwdIter pos = before_aa;
-
-    ++pos;
-    while ( pos != zz && !pred(*pos))
-    {
-      ++pos; ++before_aa;
-    }
-
-    return before_aa;
-  }
-
-
-  template <class _Alloc>
-  struct epoch_deallocator
-  {
-     typedef typename std::allocator_traits<_Alloc>::value_type value_type;
-
-     _Alloc alloc;
-
-     explicit
-     epoch_deallocator(_Alloc allocator)
-     : alloc(allocator)
-     {}
-
-     void operator()(release_entry< value_type, _Alloc >& epoch)
-     {
-       std::for_each( epoch.epochptrs.begin(),
-                      epoch.epochptrs.end(),
-                      [this](value_type* ptr)
-                      {
-                        alloc.destroy(ptr);
-                        alloc.deallocate(ptr,1);
-                      }
-                    );
-     }
-  };
-
-  template <class _Alloc>
-  epoch_deallocator<_Alloc> epochDeallocator(_Alloc alloc)
-  {
-    return epoch_deallocator<_Alloc>(alloc);
-  }
-
-  /// \brief   epoch based memory manager (compare RCU methods)
-  /// \details Each thread keeps its own epoch counter. The epoch counter is
-  ///          incremented when an operation starts and again incremented when
-  ///          an operation ends.
-  ///          Memory can be reclaimed, when a thread is non active (epoch
-  ///          counter is even) or a thread's epoch counter was advanced since
-  ///          the memory was made inaccessible.
-  ///          Hence, the epoch_manager does not provide an upper bound on
-  ///          non-reclaimable memory blocks. I.e., if a thread fails bad while
-  ///          an operation is active - w/o exception handling being involved -,
-  ///          no more memory can be reclaimed.
-  /// \warning The current implementation is not reentrant.
-  /// \note    The current implementation is unsuitable for programming styles
-  ///          that frequently create new threads.
-  template <class _Tp, template <class> class _Alloc = std::allocator >
-  struct epoch_manager : alloc_base<_Tp, _Alloc>
-  {
-      static const bool   RECYCLE_ENABLED     = false; ///< enables recycling of memory
-
-      typedef operation                   manager_kind;
-      typedef alloc_base<_Tp, _Alloc>     base;
-      typedef typename base::value_type   value_type;
-      typedef typename base::pointer      pointer;
-      typedef typename base::size_type    size_type;
-
-      /// no pinwall
-      typedef guard<epoch_manager<value_type, _Alloc> > pinguard;
-
-      /// rebind to self
-      template <class U>
-      struct rebind { typedef epoch_manager<U, _Alloc> other; };
-
-      using base::construct;
-      using base::max_size;
-      using base::address;
-
-      /// constructs a publish and scan manager with the supplied allocator
-      explicit
-      epoch_manager(_Alloc<_Tp> alloc)
-      : base(alloc)
-      {}
-
-      template <class _Up>
-      epoch_manager(const epoch_manager<_Up, _Alloc>& orig)
-      : base(orig)
-      {}
-
-      /// constructs a publish and scan manager
-      epoch_manager()
-      : base()
-      {}
-
-      pointer get_recy()
-      {
-        if (!epochdata || epochdata->recy.empty()) return nullptr;
-
-        if (epochdata->recy.front().epochptrs.size() == 0)
-        {
-          epochdata->recy.pop_front();
-          return get_recy();
-        }
-
-        pointer res = epochdata->recy.front().epochptrs.back();
-
-        epochdata->recy.front().epochptrs.pop_back();
-        return res;
-      }
-
-      pointer allocate(size_type n, std::allocator<void>::const_pointer hint = nullptr)
-      {
-        pointer res = nullptr;
-
-        if (RECYCLE_ENABLED) res = get_recy();
-
-        if (res == nullptr) res = base::allocate(n, hint);
-        return res;
-      }
-
-
-      /// safely loads the content of an atomic variable
-      template<std::memory_order mo = std::memory_order_seq_cst>
-      value_type* pin(std::atomic<value_type*>& elem)
-      {
-        return _ld<mo>(elem);
-      }
-
-      /// safely loads the content of uab::MarkablePointer
-      template<std::memory_order mo = std::memory_order_seq_cst, size_t MARKBITS>
-      typename uab::MarkablePointer<value_type, MARKBITS>::state_type
-      pin(uab::MarkablePointer<value_type, MARKBITS>& elem)
-      {
-        return _ld<mo>(elem);
-      }
-
-      /// just returns a pointer to the element
-      /// \details available to handle normal pointers and shared pointers uniformly
-      value_type* pin_addr(value_type& elem)
-      {
-        return &elem;
-      }
-
-      /// unpin not needed
-      void unpin(value_type*, int) {}
-
-      //~ void node_cleanup(void (*) (value_type&), value_type&)
-      //~ {
-        // \todo ...
-        // is the scenario in pub_scan_manager feasible under an epoch manager?
-        //   T0 (epoch):   removes N0 (predecessor of N1)
-        //   T1 (epoch:    removes N1 and cannot free N1
-        //                ( T2 was active when it acquired N1 and will be active in the
-        //                  same epoch until it finishes its operation ).
-        //   T2 (active): holds a ref to N0 and pins N1 .. OK
-        /* cleanupfun(n); not needed */
-      //~ }
-
-      release_entry<value_type, _Alloc<_Tp> > collect_epochs()
-      {
-        typedef scan_iterator<epoch_data<value_type, _Alloc<_Tp> > > epoch_iterator;
-        typedef epoch_data<value_type, _Alloc<_Tp> >                 epoch_data_t;
-        typedef release_entry<value_type, _Alloc<_Tp> >              release_entry_t;
-
-        epoch_data_t*    curr = allepochData.load(std::memory_order_relaxed);
-        epoch_iterator   end(nullptr);
-        release_entry_t res;
-
-        // load all epochs
-        for (epoch_iterator pos(curr); pos != end; ++pos)
-        {
-          // \mo we load relaxed; the global barrier must have been seen before
-          res.epochtime.push_back((*pos).epoch.load(std::memory_order_relaxed));
-        }
-
-        return res;
-      }
-
-      void push_curr_list(typename epoch_data<value_type, _Alloc<_Tp> >::removal_collection::value_type&& epochdesc)
-      {
-        epochdata->rmvd.front().swap(epochdesc);
-      }
-
-      void free_unreferenced_memory()
-      {
-        typedef epoch_data<value_type, _Alloc<_Tp> >          epoch_data_t;
-        typedef typename epoch_data_t::removal_collection     removal_collection;
-        typedef typename removal_collection::iterator         removal_iterator;
-        typedef release_entry<value_type, _Alloc<_Tp> >       release_entry_t;
-        typedef typename release_entry_t::epoch_vector        epoch_vector;
-        typedef passed_epoch_finder<value_type, _Alloc<_Tp> > passed_epoch_finder_t;
-
-        removal_collection&    rmvd   = epochdata->rmvd;
-        epoch_vector&          epoch  = rmvd.front().epochtime;
-        removal_iterator       preaa  = rmvd.before_begin();
-        removal_iterator const zz     = rmvd.end();
-
-        // could use binary search (if we had a vector), but it is expected
-        //   that we do not keep too many removal records around.
-        removal_iterator const prepos = fwd_find(preaa, zz, passed_epoch_finder_t(epoch));
-        removal_iterator       pos    = prepos;
-
-        if (RECYCLE_ENABLED && epochdata->recy.empty())
-        {
-          removal_collection&    recy   = epochdata->recy;
-
-          recy.splice_after(recy.before_begin(), rmvd, prepos);
-        }
-        else
-        {
-          std::for_each(++pos, zz, epochDeallocator(base::get_allocator()));
-          rmvd.erase_after(prepos, zz);
-        }
-      }
-
-      /// \brief  compares epochs of releasable elements with current epochs of threads.
-      ///         Frees all memory that can no longer be referenced by other threads.
-      void release_memory()
-      {
-        assert(epochdata);
-
-        // syncs with thread fence in the epoch counter
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-
-        // collect all epochs and add current epoch to list
-        push_curr_list(collect_epochs());
-
-        // use the epochs to clear old memory
-        free_unreferenced_memory();
-
-        // add a new entry for the next epoch
-        epochdata->rmvd.push_front( release_entry<value_type, _Alloc<_Tp> >() );
-      }
-
-      /// \brief  returns whether releasable memory blocks were held back
-      ///         due to other threads being still able to reference them.
-      bool has_unreleased_memory()
-      {
-        typedef epoch_data<value_type, _Alloc<_Tp> >      epoch_data_t;
-        typedef typename epoch_data_t::removal_collection removal_collection;
-
-        typename removal_collection::iterator aa = epochdata->rmvd.begin();
-        typename removal_collection::iterator zz = epochdata->rmvd.end();
-
-        return (  (aa != zz && (++aa) != zz)
-               || (!epochdata->rmvd.front().epochptrs.empty())
-               );
-      }
-
-      /// \brief  returns the number of memory blocks that are held back due to other threads
-      ///         being still able to reference them.
-      size_t count_unreleased_memory()
-      {
-         return std::accumulate( epochdata->rmvd.begin(),
-                                 epochdata->rmvd.end(),
-                                 0,
-                                 [](size_t sz, release_entry<value_type, _Alloc<_Tp> >& entry)
-                                 {
-                                   return sz + entry.epochptrs.size();
-                                 }
-                               );
-      }
-
-      /// unpins all pointers (a noop for epoch manager)
-      void unpin_all() {}
-
-      /// increments the epoch counter
-      void endop()
-      {
-        size_t epochval = epochdata->epoch.load(std::memory_order_relaxed) + 1;
-
-        assert(!active(epochval)); // exiting an operation
-
-        // \mo release in order to prevent reordering with preceding operations.
-        epochdata->epoch.store(epochval, std::memory_order_release);
-
-        if (epochval >= epochdata->collepoch)
-        {
-          release_memory();
-          epochdata->collepoch += 8*epochdata->reclaimation_increment();
-          // std::cout << epochdata->collepoch << std::endl;
-        }
-      }
-
-      /// \brief starts an operation and creates a data entry for the epoch managers if needed
-      /// \param dummy parameter to provide consistent interface with other managers
-      void beginop()
-      {
-        typedef epoch_data<value_type, _Alloc<_Tp> > epoch_data_t;
-
-        if (!epochdata)
-        {
-          // \todo \new
-          epochdata = new epoch_data_t();
-
-          epoch_data_t* curr = allepochData.load(std::memory_order_relaxed);
-
-          do
-          {
-            epochdata->next = curr;
-          } while (!allepochData.compare_exchange_weak(curr, epochdata, std::memory_order_release, std::memory_order_relaxed)); // \mo
-          return ;
-        }
-
-        // \mo this thread updates its own epoch, thus we can use relaxed
-        size_t epochval = epochdata->epoch.load(std::memory_order_relaxed) + 1;
-
-        assert(active(epochval)); // entering an operation
-
-        // \mo intra thread dependency
-        epochdata->epoch.store(epochval, std::memory_order_relaxed);
-      }
-
-
-      void beginop(size_t)
-      {
-        beginop();
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-      }
-
-      void deallocate(value_type* entry, int)
-      {
-        assert(epochdata);
-
-        epochdata->rmvd.front().epochptrs.push_back(entry);
-      }
-
-    private:
-      /// creates new storage for a Thread, unless the
-      typedef std::atomic<epoch_data<value_type, _Alloc<_Tp> >*> epoch_wall_type;
-
-      static epoch_wall_type                                     allepochData;
-      static thread_local epoch_data<value_type, _Alloc<_Tp>>*   epochdata;
-  };
-
-  template <class _Tp, template <class> class _Alloc>
-  typename epoch_manager<_Tp, _Alloc>::epoch_wall_type
-  epoch_manager<_Tp, _Alloc>::allepochData(nullptr);
-
-  template <class _Tp, template <class> class _Alloc>
-  thread_local
-  epoch_data<typename epoch_manager<_Tp, _Alloc>::value_type, _Alloc<_Tp> >*
-  epoch_manager<_Tp, _Alloc>::epochdata(nullptr);
 }
 
 #endif /* _PMEMORY_HPP */

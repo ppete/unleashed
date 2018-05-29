@@ -16,7 +16,11 @@
   #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITHOUT_GC */
 
+#ifdef HTM_ENABLED
+#include "htm-skiplist.hpp"
+#else
 #include "skiplist.hpp"
+#endif
 
 #ifndef PNOITER
 #define PNOITER 1000
@@ -29,6 +33,40 @@
 #ifndef NUM_RUNS
 #define NUM_RUNS 1
 #endif /* NUM_RUNS */
+
+#ifdef HTM_ENABLED
+
+#if defined TEST_NO_MANAGER
+
+template <class T>
+using default_alloc = htm::just_alloc<T>;
+
+#elif defined TEST_PUB_SCAN_MANAGER
+
+template <class T>
+using default_alloc = htm::pub_scan_manager<T>;
+
+#elif defined TEST_REFCOUNT_MANAGER
+
+template <class T>
+using default_alloc = htm::ref_counter<T>;
+
+#elif defined TEST_EPOCH_MANAGER
+
+template <class T>
+using default_alloc = htm::epoch_manager<T>;
+
+#elif defined TEST_STACKTRACK_MANAGER
+
+template <class T>
+using default_alloc = htm::stacktrack_manager<T>;
+
+#else  /* undefined MANAGER */
+  #error "preprocessor define for HTM memory manager is needed (TEST_JUST_ALLOC, TEST_GC_MANAGER, TEST_EPOCH_MANAGER, TEST_PUB_SCAN_MANAGER, TEST_REFCOUNT_MANAGER)"
+
+#endif /* TEST_NO_MANAGER */
+
+#else /* !HTM_ENABLED */
 
 namespace lf = lockfree;
 namespace fg = locking;
@@ -58,6 +96,9 @@ using default_alloc = lf::pub_scan_manager<T>;
   #error "preprocessor define for memory manager is needed (TEST_JUST_ALLOC, TEST_GC_MANAGER, TEST_EPOCH_MANAGER, TEST_PUB_SCAN_MANAGER)"
 
 #endif /* TEST_NO_MANAGER */
+#endif /* HTM_ENABLED */
+
+
 
 #ifndef TEST_MAX_LEVELS
 #define TEST_MAX_LEVELS 32
@@ -69,7 +110,12 @@ using default_alloc = lf::pub_scan_manager<T>;
 
 static const size_t LEVELS = TEST_MAX_LEVELS;
 
-#if defined TEST_LOCKING_SKIPLIST
+#if defined HTM_ENABLED
+
+template <class T>
+using skiplist = htm::SkipList<T, LEVELS, std::less<T>, default_alloc<T> >;
+
+#elif defined TEST_LOCKING_SKIPLIST
 
 template <class T>
 using skiplist = fg::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
@@ -81,7 +127,7 @@ using skiplist = lf::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
 
 #else
 
- #error "preprocessor define for container class is needed (TEST_LOCKING_SKIPLIST, TEST_LOCKFREE_SKIPLIST)"
+ #error "preprocessor define for container class is needed (TEST_LOCKING_SKIPLIST, TEST_LOCKFREE_SKIPLIST, HTM_ENABLED)"
 
 #endif
 
@@ -89,6 +135,20 @@ using skiplist = lf::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
 typedef skiplist<int> container_type;
 
 int total_time = 0;
+
+#ifdef HTM_ENABLED
+struct OperDesc
+{
+  char op;
+  int  el;
+  int  lv;
+
+  OperDesc(char o, int e, int l)
+  : op(o), el(e), lv(l)
+  {}
+};
+
+#endif /* HTM_ENABLED */
 
 struct alignas(CACHELINESZ) ThreadInfo
 {
@@ -99,6 +159,11 @@ struct alignas(CACHELINESZ) ThreadInfo
   size_t          pnoiter;
   size_t          num_threads;
   size_t          num_held_back;
+#ifdef HTM_ENABLED
+  size_t          ctrab;
+  size_t          ttlab;
+  std::vector<OperDesc> ops;
+#endif /* HTM_ENABLED */
   // unsigned        cpunode_start;
   // unsigned        cpunode_end;
   // std::set        elemsin;
@@ -107,6 +172,9 @@ struct alignas(CACHELINESZ) ThreadInfo
   ThreadInfo(container_type* r, size_t n, size_t cntiter, size_t cntthreads)
   : container(r), num(n), fail(0), succ(0), pnoiter(cntiter), num_threads(cntthreads),
     num_held_back(0)
+#ifdef HTM_ENABLED
+    , ctrab(0), ttlab(0), ops()
+#endif /* HTM_ENABLED */
     // , cpunode_start(0), cpunode_end(0)
   {
     assert(num < num_threads);
@@ -236,7 +304,17 @@ void container_test_prefix(ThreadInfo& ti)
     while (numops > nummain)
     {
       int     elem = genElem(++wrid, tinum, ti.num_threads, threadops);
+
+#if HTM_ENABLED
+      size_t  abortctr = 0;
+      int     succ = ti.container->insert(elem, abortctr);
+
+      // ti.ops.push_back(OperDesc('i', elem, succ));
+      if (abortctr > ti.ctrab) ti.ctrab = abortctr;
+      ti.ttlab += abortctr;
+#else
       int     succ = ti.container->insert(elem);
+#endif /* HTM_ENABLED */
 
       assert(succ >= 0), unused(succ);
       ++ti.succ;
@@ -271,10 +349,19 @@ void container_test(ThreadInfo& ti)
     assert(numops > 0);
     while (numops)
     {
+#if HTM_ENABLED
+      size_t abortctr = 0;
+#endif /* HTM_ENABLED */
+
       if (numops % 2)
       {
         int    elem = genElem(++wrid, tinum, ti.num_threads, threadops);
+#if HTM_ENABLED
+        int    succ = ti.container->insert(elem, abortctr);
+        // ti.ops.push_back(OperDesc('i', elem, succ));
+#else
         int    succ = ti.container->insert(elem);
+#endif /* HTM_ENABLED */
 
         assert(succ >= 0), unused(succ);
         ++ti.succ;
@@ -282,9 +369,19 @@ void container_test(ThreadInfo& ti)
       else
       {
         int    elem = genElem(++rdid, tinum, ti.num_threads, threadops);
-        int    succ = ti.container->erase(elem);
+#if HTM_ENABLED
+        int    succ = ti.container->erase(elem, abortctr);
+        // ti.ops.push_back(OperDesc('e', elem, succ));
+#else
+          int    succ = ti.container->erase(elem);
+#endif /* HTM_ENABLED */
         if (succ > 0) ++ti.succ; else ++ti.fail;
       }
+
+#if HTM_ENABLED
+      if (abortctr > ti.ctrab) ti.ctrab = abortctr;
+      ti.ttlab += abortctr;
+#endif /* HTM_ENABLED */
 
       --numops;
     }
@@ -365,6 +462,10 @@ void parallel_test(const size_t cntthreads, const size_t cntoper)
               //~ << " [ " << thread_info[i].cpunode_start
               //~ << " - " << thread_info[i].cpunode_end
               << " ]  x "
+#if HTM_ENABLED
+              << info.ctrab << " < "
+              << info.ttlab
+#endif /* HTM_ENABLED */
               << "  ( " << info.num_held_back << " obj held )"
               << std::endl;
 
@@ -378,6 +479,24 @@ void parallel_test(const size_t cntthreads, const size_t cntoper)
               << " <exp != act> " << szlst << std::endl;
     fail();
   }
+
+#if HTM_ENABLED
+  size_t total = htm::analysis::stats(cont.getAllocator().statsbegin(), cont.getAllocator().statslimit());
+  size_t measures = htm::analysis::statsctr(cont.getAllocator().statsbegin(), cont.getAllocator().statslimit());
+  size_t collects = htm::analysis::collectctr(cont.getAllocator().statsbegin(), cont.getAllocator().statslimit());
+  float avtxlen = ((float) total) / measures;
+
+  std::cerr << "avgtxlen:  " << avtxlen << std::endl;
+  std::cout << avtxlen << " (" << total << "/" << measures << ")  "
+            << "  " << collects
+            << std::endl;
+
+  if (!htm::skiplist_check(cont.start, cont.limit, std::less<int>()))
+  {
+    std::cout << "fail" << std::endl;
+    fail();
+  }
+#endif /* HTM_ENABLED */
 
   std::cout << szlst << std::endl;
   std::cout << "|| o&o." << std::endl;

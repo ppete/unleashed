@@ -1,7 +1,7 @@
-#ifndef _UAB_ATOMICUTIL_HPP
-#define _UAB_ATOMICUTIL_HPP
+#ifndef _ATOMICUTIL_HPP
+#define _ATOMICUTIL_HPP
 
-/// File providing various utility functions and classes
+/// File providing various atomic utility functions and classes
 /// \author Peter Pirkelbauer
 /// \email  pirkelbauer@uab.edu
 
@@ -18,6 +18,41 @@
 
 namespace uab
 {
+  template <class T, size_t ALIGNSZ>
+  struct aligned_type
+  {
+    static_assert(ALIGNSZ >= sizeof(T), "alignment/size mismatch");
+    
+    T              val;
+    char           x[ALIGNSZ-sizeof(T)];
+
+    aligned_type(T v)
+    : val(v)
+    {}
+
+    aligned_type()
+    : val(T())
+    {}
+  };
+
+  template <class T, size_t ALIGNSZ>
+  struct aligned_atomic_type
+  {
+    static_assert(ALIGNSZ >= sizeof(std::atomic<T>), "alignment/size mismatch");
+
+    std::atomic<T> val;
+    char           x[ALIGNSZ-sizeof(std::atomic<T>)];
+
+    aligned_atomic_type(T v)
+    : val(v)
+    {}
+
+    aligned_atomic_type()
+    : val(T())
+    {}
+  };
+
+
   /// Class providing similar functionality to Java's AtomicMarkableReference
   /// \tparam T underlying type; class represents markable T*
   /// \tparam MARKABLE_BITS number of expected markable bits

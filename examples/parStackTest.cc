@@ -42,7 +42,7 @@ using default_alloc = lf::epoch_manager<T>;
 template <class T>
 using default_alloc = lf::pub_scan_manager<T>;
 
-#else /* undefined MANAGER */
+#elif !defined TEST_LOCKING_STACK /* undefined MANAGER */
 
   #error "preprocessor define for memory manager is needed (TEST_JUST_ALLOC, TEST_GC_MANAGER, TEST_EPOCH_MANAGER, TEST_PUB_SCAN_MANAGER)"
 
@@ -57,9 +57,12 @@ using default_alloc = lf::pub_scan_manager<T>;
 template <class T>
 using stack = lf::stack<T, default_alloc<T> >;
 
-#else
+#elif defined TEST_LOCKING_STACK
+template <class T>
+using stack = fg::stack<T>;
 
- #error "preprocessor define for container class is needed (TEST_LOCKING_SKIPLIST, TEST_LOCKFREE_SKIPLIST, HTM_ENABLED)"
+#else
+ #error "preprocessor define for container class is needed (TEST_LOCKING_STACK, TEST_LOCKFREE_STACK)"
 
 #endif
 
@@ -163,7 +166,7 @@ int main(int argc, char** args)
   // GC_find_leak = 1;
 #endif /* WITHOUT_GC */
 
-  size_t pnoiter = 40000000;
+  size_t pnoiter = 4000000;
   size_t num_threads = 6;
   size_t num_runs = 1;
 

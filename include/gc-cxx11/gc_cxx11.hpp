@@ -1,12 +1,11 @@
-
 #ifndef CXX11_GC_ALLOCATOR_HPP
 #define CXX11_GC_ALLOCATOR_HPP
 
 #include "gc_allocator.h"
 
-#ifdef GC_CXX11_HPP
+#ifdef BLAZE_GC_CXX11_THREAD_CONTEXT
 #error "GC_CXX_THREAD_CONTEXT already defined. Check include order."
-#endif /* GC_CXX11_HPP */
+#endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
 
 #define BLAZE_GC_CXX11_THREAD_CONTEXT 1
 
@@ -29,4 +28,4 @@ struct gc_cxx_thread_context
     void* operator new(size_t size) = delete;
 };
 
-#endif /* GC_CXX11_HPP */
+#endif /* CXX11_GC_ALLOCATOR_HPP */
