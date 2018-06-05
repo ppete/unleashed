@@ -7,6 +7,9 @@ test_make()
   allocator=$3
   expected=$4
 
+  outdir=${COMPDIR:-"./tmp"}
+
+  echo "make TEST_CONTAINER=$container TEST_ALLOC=$allocator -f Makefile.$selector"
   make TEST_CONTAINER="$container" TEST_ALLOC="$allocator" -f Makefile."$selector"
   res="$?"
 
@@ -16,16 +19,27 @@ test_make()
 
   if [[ "$expected" -eq 0 ]]; then
     echo run
-    mv ./tmp/"$selector".bin ./tmp/"$selector""-$2-$3-$CXX.bin"
+    mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX.bin"
   fi
 }
 
 test_htm_make()
 {
+  if [[ $host == "iprogress-phi" ]] && [[ $CXX == "icpc" ]]; then
+    return
+  fi
+
+  if [[ $host == "blueblaze" ]] && [[ $CXX == "xlc++" ]]; then
+    return
+  fi
+
   selector=$1
   allocator=$2
   expected=$3
 
+  outdir=${COMPDIR:-"./tmp"}
+
+  echo "make TEST_ALLOC=$allocator TEST_HTM=1 -f Makefile.$selector"
   make TEST_ALLOC="$allocator" TEST_HTM=1 -f Makefile."$selector"
   res="$?"
 
@@ -35,7 +49,7 @@ test_htm_make()
 
   if [[ "$expected" -eq 0 ]]; then
     echo run
-    mv ./tmp/"$selector".bin ./tmp/"$selector""-HTM-$2-""$CXX"".bin"
+    mv "$outdir"/"$selector".bin "$outdir"/"$selector""-HTM-$2-""$CXX"".bin"
   fi
 }
 
@@ -74,14 +88,51 @@ test_stacks()
   #~ test_htm_make stack TEST_STACKTRACK_MANAGER 0
 }
 
+test_task_make()
+{
+  ## xlc++ on blueblaze does not support taskgroup
+  if [[ $host == "blueblaze" ]] && [[ $CXX == "xlc++" ]]; then
+    return
+  fi
+
+  selector=$1
+  expected=$2
+
+  outdir=${COMPDIR:-"./tmp"}
+
+  make NUMTHREADS=4 -f Makefile."$selector"
+  res="$?"
+
+  if [[ "$expected" -ne "$res" ]]; then
+    exit $res
+  fi
+
+  if [[ "$expected" -eq 0 ]]; then
+    echo run
+    echo "rm -f $outdir/$selector"*".4.bin"
+    rm -f "$outdir/$selector"*".4.bin"
+  fi
+}
+
+
+test_tasks()
+{
+  test_task_make pi      0
+  test_task_make fib     0
+  test_task_make tsp     0
+  #~ test_task_make nqueens 0
+}
+
+
+host=$(hostname -s)
 
 ###
 # COMPILERS
-COMPILERS=
+COMPILERS="g++"
 
 # GNU compilers
 # COMPILERS="g++-4.8 g++-4.9 g++-5.0 powerpc-linux-gnu-g++-4.9 arm-linux-gnueabihf-g++-4.9 x86_64-w64-mingw32-g++"
-COMPILERS="$COMPILERS g++"
+#~ COMPILERS="$COMPILERS g++"
 
 # Clang family
 # COMPILERS="$COMPILERS clang++-3.4 clang++-3.5 clang++-3.6 clang++-3.7"
@@ -90,16 +141,28 @@ COMPILERS="$COMPILERS g++"
 # COMPILERS="$COMPILERS icpc"
 
 # IBM compilers
-# 
+#
 # COMPILERS="$COMPILERS xlc++"
+
+if [[ $host == "diablo" ]]; then
+  COMPILERS="g++ g++-7 clang++-5.0"
+fi
+
+if [[ $host == "iprogress-phi" ]]; then
+  COMPILERS="icpc g++"
+fi
+
+if [[ $host == "blueblaze" ]]; then
+  COMPILERS="g++ xlc++"
+fi
 
 
 ###
 # DATA STRUCTURE TESTS
 
-#~ TESTS="test_skiplists test_stacks"
+# TESTS="test_tasks"
 
-TESTS="test_skiplists"
+TESTS="test_skiplists test_stacks test_tasks"
 
 for arg in $COMPILERS
 do

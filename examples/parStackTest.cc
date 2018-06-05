@@ -82,21 +82,21 @@ bool success(const std::pair<T, bool>& res)
 }
 
 
-void producer(container_type& stack, int count)
+void producer(container_type* stack, int count)
 {
   gc_cxx_thread_context gc_guard;
 
   for (int i = count; i > 0; --i)
-    stack.push(i);
+    stack->push(i);
 }
 
-void consumer(container_type& stack, int count)
+void consumer(container_type* stack, int count)
 {
   gc_cxx_thread_context gc_guard;
 
   while (count)
   {
-    auto result = stack.pop();
+    auto result = stack->pop();
 
     if (result.second) --count;
   }
@@ -120,7 +120,7 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
   for (size_t i = 0; i < cntthreads; ++i)
   {
     exp_threads.emplace_back( (i % 2) ? consumer : producer,
-                              std::ref(stack),
+                              &stack,
                               cntoper / cntthreads
                             );
   }

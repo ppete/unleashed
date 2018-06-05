@@ -3,7 +3,7 @@
 #   PowerPC: use optimization -mcpu=native for architecture specific compilation
 #   x86/ARM: use optimization -march=native for architecture specific compilation
 ifeq ($(CXXOPT),)
-	CXXOPT=-ggdb -O2 -DNDEBUG=1
+	CXXOPT=-g -O2 -DNDEBUG=1
 endif
 
 ifeq ($(THISARCH), INTEL)
@@ -11,7 +11,9 @@ ifeq ($(THISARCH), INTEL)
 endif
 
 ifeq ($(THISARCH), POWER8)
+ifneq ($(CXX), xlc++)
 	CXXOPT+=-mcpu=native
+endif
 endif
 
 ifeq ($(THISARCH), ARM)

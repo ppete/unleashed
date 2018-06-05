@@ -104,13 +104,21 @@ inline void * GC_selective_alloc<GC_true_type>(size_t n, GC_true_type,
 template <class GC_Tp>
 class gc_allocator_cxx11 {
 public:
-  typedef size_t       size_type;
-  typedef ptrdiff_t    difference_type;
-  typedef GC_Tp*       pointer;
-  typedef const GC_Tp* const_pointer;
-  typedef GC_Tp&       reference;
-  typedef const GC_Tp& const_reference;
-  typedef GC_Tp        value_type;
+  typedef size_t              size_type;
+  typedef ptrdiff_t           difference_type;
+  typedef GC_Tp*              pointer;
+  typedef const GC_Tp*        const_pointer;
+  typedef GC_Tp&              reference;
+  typedef const GC_Tp&        const_reference;
+  typedef GC_Tp               value_type;
+
+  typedef void*               void_pointer;
+  typedef const void*         const_void_pointer;
+  typedef std::false_type     propagate_on_container_copy_assignment;
+  typedef std::false_type     propagate_on_container_move_assignment;
+  typedef std::false_type     propagate_on_container_swap;
+  typedef std::false_type     is_always_equal;
+
 
   template <class GC_Tp1> struct rebind {
     typedef gc_allocator_cxx11<GC_Tp1> other;
@@ -151,11 +159,19 @@ public:
 
 template<>
 class gc_allocator_cxx11<void> {
-  typedef size_t      size_type;
-  typedef ptrdiff_t   difference_type;
-  typedef void*       pointer;
-  typedef const void* const_pointer;
-  typedef void        value_type;
+  typedef size_t           size_type;
+  typedef ptrdiff_t        difference_type;
+  typedef void*            pointer;
+  typedef const void*      const_pointer;
+  typedef void             value_type;
+
+  typedef void*            void_pointer;
+  typedef const void*      const_void_pointer;
+  typedef std::false_type  propagate_on_container_copy_assignment;
+  typedef std::false_type  propagate_on_container_move_assignment;
+  typedef std::false_type  propagate_on_container_swap;
+  typedef std::false_type  is_always_equal;
+
 
   template <class GC_Tp1> struct rebind {
     typedef gc_allocator_cxx11<GC_Tp1> other;

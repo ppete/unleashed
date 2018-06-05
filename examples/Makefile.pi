@@ -14,6 +14,16 @@ else
 	SUFFIX=
 endif
 
+OPTFLAG=
+
+ifeq ($(THISARCH), POWER8)
+ifneq ($(CXX), xlc++)
+	OPTFLAG+=-mcpu=native
+endif
+else
+	OPTFLAG+=-march=native
+endif
+
 #GLOB=
 GLOB=-DZEROGLOBALS=1 # turns of global result reduction for TBB
 
@@ -23,9 +33,9 @@ default: $(OUTPUTDIR)/pi-blaze$(SUFFIX).bin \
          $(OUTPUTDIR)/pi-omp$(SUFFIX).bin \
          $(OUTPUTDIR)/pi-tbb$(SUFFIX).bin
 
-#~ CXXFLAGS = -ggdb -std=c++11 -Wall -Wextra -pedantic -O2 -DNDEBUG=1 -march=native
+# CXXFLAGS = -ggdb -std=c++11 -Wall -Wextra -pedantic -O0 $(OPTFLAG)
 
-CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -O2 -DNDEBUG=1 -march=native
+CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -O2 -DNDEBUG=1 $(OPTFLAG)
 
 $(OUTPUTDIR)/pi-blaze$(SUFFIX).bin: pi.cc ../include/tasks.hpp Makefile.pi
 	$(CXX) $(CXXFLAGS) -pthread -DBLAZE_VERSION=1 $(THRSPEC) -I$(BLAZE_HOME)/include $< -o $@
@@ -34,7 +44,7 @@ $(OUTPUTDIR)/pi-omp$(SUFFIX).bin: pi.cc ../include/tasks.hpp Makefile.pi
 	$(CXX) $(CXXFLAGS) -fopenmp -DOMP_VERSION=1 $(THRSPEC) -I$(BLAZE_HOME)/include $< -o $@
 
 $(OUTPUTDIR)/pi-tbb$(SUFFIX).bin: pi.cc ../include/tasks.hpp Makefile.pi
-	$(CXX) $(CXXFLAGS) -pthread -DTBB_VERSION=1 $(THRSPEC) -I$(BLAZE_HOME)/include -I$(TBB_HOME)/include -L$(TBB_HOME)/lib -ltbb -ltbbmalloc $(GLOB) $< -o $@
+	$(CXX) $(CXXFLAGS) -pthread -DTBB_VERSION=1 $(THRSPEC) -I$(BLAZE_HOME)/include -I$(TBB_HOME)/include $(GLOB)  $< -latomic -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $@
 
 clean:
 	rm -rf $(OUTPUTDIR)/*

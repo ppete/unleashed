@@ -923,7 +923,6 @@ static const bool accelerated_restart = false;
   template <class _Tp, size_t _MAXLVL, class _Compare, class _Alloc>
   bool SkipList<_Tp, _MAXLVL, _Compare, _Alloc> :: contains(const value_type& x)
   {
-    /*
     std::array<node_type*, MAXLEVEL> preds;
     std::array<node_type*, MAXLEVEL> succs;
     PinGuard                         guard(nodeAlloc, SZPINWALL); // uses RAII to free alloc's pinwall
@@ -935,9 +934,6 @@ static const bool accelerated_restart = false;
            && succs[lFound]->fullyLinked.load()
            && !succs[lFound]->marked.load()
            );
-    */
-    // \todo
-    return false;
   }
 
 

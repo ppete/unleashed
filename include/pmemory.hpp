@@ -1,6 +1,11 @@
+#ifndef _PMEMORY_HPP
+
+#define _PMEMORY_HPP 1
+
 /// \brief Memory managers for fine-grained lock based and lock-free data structures
 ///
 /// \details - just_alloc is an allocator that only allocates, but never frees memory.
+///          - arena is a memory manager that frees memory at user selected timepoints
 ///          - pub_scan_manager (PS) is a memory manager that uses
 ///            publish and scan techniques, similar to M. Michael's hazard pointers
 ///            and Herlihy et al.'s repeated offender implementation.
@@ -17,13 +22,67 @@
 ///            allocator leads to early and HAZARDOUS memory deallocations.
 ///            To enable the gc_manager, either PMEMORY_GC_ENABLED needs to be defined
 ///            or Boehm's gc.h must be included before this file.
-//           - \todo add quiescent arena manager
-/// \author  Nick Dzugan and Peter Pirkelbauer
-/// \email   { ndzugan, pirkelbauer } @ uab.edu
+/// \author  Nick Dzugan, Amalee Wilson, Peter Pirkelbauer
+/// \email   pirkelbauer @ uab.edu
 
-#ifndef _PMEMORY_HPP
+#if DOCUMENTATION_ONLY
 
-#define _PMEMORY_HPP 1
+template <class T, class Alloc>
+concept memory_manager
+{
+  /// pins an atomic pointer and chooses a mo tag appropriate for the
+  ///   memory managing technique; actual_mo >= mo
+  template <std::memory_order mo = std::memory_order_seq_cst>
+  _Tp* pin(std::atomic<_Tp*>& elem);
+
+  /// pins an uab::MarkablePointer and chooses a mo tag appropriate for the
+  ///   memory managing technique; actual_mo >= mo
+  template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
+  typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+  pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem);
+
+  /// pins a non-atomic address (provided to simplify some algorithms)
+  _Tp* pin_addr(_Tp& elem);
+
+  /// releases the pointer
+  /// \details the second argument provides a "hint" to find locate
+  ///          the pointer.
+  /// \param   mem location whose guard is released
+  /// \param   hnt hint, how the location may be guarded
+  void unpin(_Tp* mem, int hnt);
+
+  /// releases all pinned pointers
+  void unpin_all();
+
+  /// begins an operation on shared data
+  /// \param sz maximum number of pointers that need to be guarded
+  void beginop(size_t sz);
+
+  /// begins an operation on shared data, w/o barrier
+  ///   used for release-only operations
+  void beginrel(size_t sz, unordered);
+
+  /// ends an operation
+  void endop();
+
+  /// collects and releases non-referenced memory
+  void release_memory();
+
+  /// releases all memory held, under the assumption that the data structure
+  ///   is quiescent.
+  void qrelease_memory();
+
+  /// does the memory manager hold unreleased memory?
+  /// \details this should be a constant time operation
+  bool has_unreleased_memory() const;
+
+  /// returns an estimate of unreleased nodes, if available
+  /// \details this may not be a constant time operation
+  size_t count_unreleased_memory() const;
+};
+
+#endif /* DOCUMENTATION_ONLY */
+
 
 #if defined(GC_H)
   // enable GC if Boehms Collector is included before this header file
@@ -67,9 +126,15 @@ namespace
 
 namespace lockfree
 {
+  //
+  // memory manager tags
   struct finegrain {};
   struct operation {};
   struct collected {};
+
+  //
+  //
+  struct unordered {};
 
   template <template <typename> class _Alloc, class _Tp>
   struct rebinder
@@ -99,11 +164,10 @@ namespace lockfree
         alloc.beginop(pins);
       }
 
-      explicit
-      guard(Alloc a)
+      guard(Alloc a, size_t pins, unordered tag)
       : alloc(a)
       {
-        alloc.beginop();
+        alloc.beginop(pins, tag);
       }
 
       ~guard()
@@ -121,7 +185,7 @@ namespace lockfree
   {
     template <class Alloc>
     explicit
-    guardless(Alloc, size_t = 0)
+    guardless(Alloc, size_t = 0, unordered = unordered())
     {}
   };
 
@@ -276,11 +340,48 @@ namespace lockfree
       /// collects and releases non-referenced memory
       void release_memory() {}
 
-      bool has_unreleased_memory() { return false; }
-      size_t count_unreleased_memory() { return 0; }
+      /// releases all memory held, under the assumption that the data structure
+      ///   is quiescent.
+      void qrelease_memory() {}
 
-      // void node_cleanup(void (*) (_Tp&), _Tp&) {}
+      /// does the memory manager hold unreleased memory?
+      bool has_unreleased_memory() const { return false; }
+
+      /// returns an estimate of unreleased nodes, if available
+      size_t count_unreleased_memory() const { return 0; }
   };
+
+  //
+  // auxiliary classes
+
+  template <class _Alloc>
+  struct Deallocator
+  {
+    _Alloc alloc;
+
+    explicit
+    Deallocator(_Alloc allocator)
+    : alloc(allocator)
+    {}
+
+    template <class T>
+    void operator()(T* ptr)
+    {
+      alloc.destroy(ptr);
+
+      alloc.deallocate(ptr, 1);
+    }
+  };
+
+  template <class _Alloc>
+  Deallocator<_Alloc> deallocator(_Alloc alloc)
+  {
+    return Deallocator<_Alloc>{alloc};
+  }
+
+
+  //
+  // allocators
 
   /// \brief simple allocator that only allocates BUT DOES NOT FREE
   template <class _Tp, template <class> class _Alloc = std::allocator>
@@ -321,6 +422,66 @@ namespace lockfree
   };
 
 
+  /// \brief allocator stores delays freeing unt
+  template <class _Tp, template <class> class _Alloc = std::allocator>
+  struct arena : no_pinwall_base<_Tp>, alloc_base<_Tp, _Alloc>
+  {
+    private:
+      typedef alloc_base<_Tp, _Alloc> base;
+
+      std::vector<_Tp>   released;
+
+    public:
+      // no pinwall
+      typedef guardless  pinguard;
+      typedef collected  manager_kind;
+
+      // rebind to self
+      template <class U>
+      struct rebind { typedef just_alloc<U, _Alloc> other; };
+
+      /// constructs a just_alloc manager
+      explicit
+      arena(_Alloc<_Tp> alloc)
+      : base(alloc), released()
+      {}
+
+      /// constructs a just_alloc manager
+      template <class _Up>
+      explicit
+      arena(just_alloc<_Up, _Alloc> other)
+      : base(other)
+      {}
+
+      /// constructs a just_alloc manager
+      arena()
+      : base()
+      {}
+
+      /// delay deallocation
+      void deallocate(_Tp* el, int)
+      {
+        released.push_back(el);
+      }
+
+      /// releases all memory held, under the assumption that the data structure
+      ///   is quiescent.
+      void qrelease_memory()
+      {
+        std::for_each(released.begin(), released.end(), deallocator(base::get_allocator()));
+
+        released.clear();
+      }
+
+      /// does the memory manager hold unreleased memory?
+      bool has_unreleased_memory() const { return released.size() > 0; }
+
+      /// returns an estimate of unreleased nodes, if available
+      size_t count_unreleased_memory() const { return released.size(); }
+  };
+
+
+
 #ifdef PMEMORY_GC_ENABLED
   /// \brief simple
   template <class _Tp, template <class> class _Alloc>
@@ -356,6 +517,7 @@ namespace lockfree
       : base()
       {}
 
+      /// disable deallocate and defer to GC
       void deallocate(_Tp*, int) {}
   };
 
@@ -398,6 +560,7 @@ namespace lockfree
       const size_t                       pinwall_size;
       removal_collection                 rmvd; ///< removed but not yet freed pointers
 
+      // \todo new
       explicit
       pub_scan_data(size_t len)
       : next(nullptr), base(new pinwall_entry[len]), last(base),
@@ -519,6 +682,10 @@ namespace lockfree
       }
 
       bool needs_collect() const { return collection_time <= cnt; }
+
+      void qrelease()
+      {
+      }
   };
 
 
@@ -662,32 +829,6 @@ namespace lockfree
     return Pinned<_Tp, _Alloc>(cont);
   }
 
-
-  template <class _Alloc>
-  struct Deallocator
-  {
-    _Alloc alloc;
-
-    explicit
-    Deallocator(_Alloc allocator)
-    : alloc(allocator)
-    {}
-
-    template <class T>
-    void operator()(T* ptr)
-    {
-      alloc.destroy(ptr);
-
-      alloc.deallocate(ptr, 1);
-    }
-  };
-
-  template <class _Alloc>
-  Deallocator<_Alloc> deallocator(_Alloc alloc)
-  {
-    return Deallocator<_Alloc>{alloc};
-  }
-
   static inline
   size_t threshold(size_t len)
   {
@@ -800,14 +941,27 @@ namespace lockfree
         pinWall->collection_time = pinWall->pinwall_size + threshold(pinnedPtrs.size());
       }
 
+      /// releases all memory under assumption that data structure is quiescent
+      /// i.e., no other thread has access to these nodes
+      void qrelease_memory()
+      {
+        typedef pub_scan_data<value_type, _Alloc<_Tp> >    pub_scan_data;
+        typedef typename pub_scan_data::removal_collection removal_collection;
+
+        removal_collection&                   rmvd = pinWall->rmvd;
+
+        std::for_each(rmvd.begin(), rmvd.end(), deallocator(base::get_allocator()));
+        rmvd.clear();
+      }
+
       /// returns true if this thread has unreleased memory
-      bool has_unreleased_memory()
+      bool has_unreleased_memory() const
       {
         return (count_unreleased_memory() > 0);
       }
 
       /// returns the number of unreleased memory blocks
-      size_t count_unreleased_memory()
+      size_t count_unreleased_memory() const
       {
         assert(pinWall);
 
@@ -839,12 +993,13 @@ namespace lockfree
       }
 
       /// \brief starts an operation and creates slots for szPinWall entries
-      void beginop(size_t szPinWall)
+      void beginop(size_t szPinWall, unordered = unordered())
       {
         typedef pub_scan_data<value_type, _Alloc<_Tp> > pub_scan_data;
 
         if (!pinWall)
         {
+          // \todo new
           pinWall = new pub_scan_data(szPinWall);
 
           pub_scan_data* curr = allPinWalls.load(std::memory_order_relaxed);
@@ -965,7 +1120,6 @@ namespace lockfree
 
     size_t                          collepoch;
     removal_collection              rmvd;
-    removal_collection              recy;
 
     size_t reclaimation_increment()
     {
@@ -973,7 +1127,7 @@ namespace lockfree
     }
 
     epoch_data()
-    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvd(1), recy()
+    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvd(1)
     {
       assert(!rmvd.empty());
     }
@@ -1083,8 +1237,6 @@ namespace lockfree
   template <class _Tp, template <class> class _Alloc = std::allocator >
   struct epoch_manager : alloc_base<_Tp, _Alloc>
   {
-      static const bool   RECYCLE_ENABLED     = false; ///< enables recycling of memory
-
       typedef operation                   manager_kind;
       typedef alloc_base<_Tp, _Alloc>     base;
       typedef typename base::value_type   value_type;
@@ -1118,30 +1270,9 @@ namespace lockfree
       : base()
       {}
 
-      pointer get_recy()
-      {
-        if (!epochdata || epochdata->recy.empty()) return nullptr;
-
-        if (epochdata->recy.front().epochptrs.size() == 0)
-        {
-          epochdata->recy.pop_front();
-          return get_recy();
-        }
-
-        pointer res = epochdata->recy.front().epochptrs.back();
-
-        epochdata->recy.front().epochptrs.pop_back();
-        return res;
-      }
-
       pointer allocate(size_type n, std::allocator<void>::const_pointer hint = nullptr)
       {
-        pointer res = nullptr;
-
-        if (RECYCLE_ENABLED) res = get_recy();
-
-        if (res == nullptr) res = base::allocate(n, hint);
-        return res;
+        return base::allocate(n, hint);
       }
 
 
@@ -1226,17 +1357,8 @@ namespace lockfree
         removal_iterator const prepos = fwd_find(preaa, zz, passed_epoch_finder_t(epoch));
         removal_iterator       pos    = prepos;
 
-        if (RECYCLE_ENABLED && epochdata->recy.empty())
-        {
-          removal_collection&    recy   = epochdata->recy;
-
-          recy.splice_after(recy.before_begin(), rmvd, prepos);
-        }
-        else
-        {
-          std::for_each(++pos, zz, epochDeallocator(base::get_allocator()));
-          rmvd.erase_after(prepos, zz);
-        }
+        std::for_each(++pos, zz, epochDeallocator(base::get_allocator()));
+        rmvd.erase_after(prepos, zz);
       }
 
       /// \brief  compares epochs of releasable elements with current epochs of threads.
@@ -1258,9 +1380,25 @@ namespace lockfree
         epochdata->rmvd.push_front( release_entry<value_type, _Alloc<_Tp> >() );
       }
 
+      /// releases all memory
+      void qrelease_memory()
+      {
+        assert(epochdata);
+
+        typedef epoch_data<value_type, _Alloc<_Tp> >          epoch_data_t;
+        typedef typename epoch_data_t::removal_collection     removal_collection;
+
+        removal_collection&    rmvd   = epochdata->rmvd;
+
+        std::for_each(rmvd.begin(), rmvd.end(), epochDeallocator(base::get_allocator()));
+
+        rmvd.clear();
+        rmvd.push_front( release_entry<value_type, _Alloc<_Tp> >() );
+      }
+
       /// \brief  returns whether releasable memory blocks were held back
       ///         due to other threads being still able to reference them.
-      bool has_unreleased_memory()
+      bool has_unreleased_memory() const
       {
         typedef epoch_data<value_type, _Alloc<_Tp> >      epoch_data_t;
         typedef typename epoch_data_t::removal_collection removal_collection;
@@ -1275,7 +1413,7 @@ namespace lockfree
 
       /// \brief  returns the number of memory blocks that are held back due to other threads
       ///         being still able to reference them.
-      size_t count_unreleased_memory()
+      size_t count_unreleased_memory() const
       {
          return std::accumulate( epochdata->rmvd.begin(),
                                  epochdata->rmvd.end(),
@@ -1310,7 +1448,7 @@ namespace lockfree
 
       /// \brief starts an operation and creates a data entry for the epoch managers if needed
       /// \param dummy parameter to provide consistent interface with other managers
-      void beginop()
+      void beginop(size_t, unordered)
       {
         typedef epoch_data<value_type, _Alloc<_Tp> > epoch_data_t;
 
@@ -1337,10 +1475,10 @@ namespace lockfree
         epochdata->epoch.store(epochval, std::memory_order_relaxed);
       }
 
-
-      void beginop(size_t)
+      void beginop(size_t sz)
       {
-        beginop();
+        beginop(sz, unordered());
+
         std::atomic_thread_fence(std::memory_order_seq_cst);
       }
 

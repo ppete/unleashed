@@ -13,7 +13,7 @@
 #include <list>
 #include <vector>
 
-#define PRINT_STATS 0
+#define PRINT_STATS 1
 
 #ifndef NUMTHREADS
 #define NUMTHREADS (20)
@@ -25,6 +25,7 @@
 #endif
 
 #if TBB_VERSION
+#include <mutex>
 #include <tbb/task_scheduler_init.h>
 #include <tbb/task_group.h>
 #endif
@@ -235,6 +236,7 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 #endif /* OMP_VERSION */
 
 #if TBB_VERSION
+
 
 template <class D> struct globals
 {
