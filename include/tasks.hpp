@@ -46,7 +46,7 @@ namespace uab
   static inline
   void bind_to_core(pthread_t thr, size_t cpu)
   {
-    assert(num < NUM_CORES);
+    assert(cpu < NUM_CORES);
 
     // core 0,2,4,..,18,20,22,..,38: 0            <= num < numthreads/2 -> (2*num % numthreads)
     // core 1,3,5,..,19,21,23,..,39: numthreads/2 <= num < numthreads   -> (2*(num - (numthreads/2) ~1) % numthreads) | 1
@@ -70,7 +70,7 @@ namespace uab
     size_t thiscore = thisthr & thread_mask;
     size_t thatcore = thatthr & thread_mask;
 
-    if (thiscore == thatcore) return 8;
+    if (thiscore == thatcore) return 6;
 
     if ((thiscore < NUM_CORES_PER_SOCKET) == (thatcore < NUM_CORES_PER_SOCKET)) return 4;
 
@@ -563,7 +563,7 @@ namespace uab
 
     std::pair<T, bool> deq()
     {
-      static const size_t SAMPLESIZE = 4;
+      static const size_t SAMPLESIZE = 8;
 
       std::pair<T, bool> res = tq_loc->deq();
       if (res.second) return res;
@@ -586,6 +586,8 @@ namespace uab
           }
 
           ++tasks_i;
+          ++thrid;
+          if (thrid == MAXTQ) thrid = 0;
         }
       }
 
@@ -605,15 +607,20 @@ namespace uab
             size_t tries = num_tries(idx, thrid);
             size_t avail = victim->numtasks.val.load(std::memory_order_relaxed);
 
-            if (avail * 4 > tasks_sum) tries += 2;
-            if (avail * 2 > tasks_sum) tries += 2;
+            if (avail * 2 > tasks_sum)
+            {
+              tries += 2;
+
+              if (avail * 4 > tasks_sum) tries += 2;
+
+              tries = std::min(tries, size_t(8));
+            }
 
             tasks_sum -= tasks_avail[tasks_i];
             tasks_sum += (tasks_avail[tasks_i] = avail);
             ++tasks_i;
             if (tasks_i == SAMPLESIZE) tasks_i = 0;
 
-            tries = std::min(tries, size_t(8));
             res = victim->deq_steal(tries);
 
             if (res.second)
