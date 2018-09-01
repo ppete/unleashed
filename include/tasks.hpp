@@ -11,182 +11,9 @@
 #include "atomicutil.hpp"
 #include "pmemory.hpp"
 
-// INTEL_DUAL_SOCKET POWER8_DUAL_SOCKET INTEL_PHI_1
-
-#define INTEL_DUAL_SOCKET 1
-
 namespace uab
 {
   static const size_t BLKSZ                = 1024;
-
-#if defined(INTEL_DUAL_SOCKET)
-
-  static const size_t NUM_SOCKETS          = 2;
-  static const size_t NUM_CORES_PER_SOCKET = 10;
-  static const size_t NUM_THREADS_PER_CORE = 2;
-  static const size_t NUM_CPUS             = NUM_CORES_PER_SOCKET * NUM_SOCKETS;
-  static const size_t NUM_CORES            = NUM_CPUS * NUM_THREADS_PER_CORE;
-
-  static size_t thread_mult = 1;  // == NUM_THREADS_PER_CORE if hyperthreading is not needed
-  static size_t thread_mask = ~0; // used to identify sibling hyperthreads
-
-  static inline
-  void set_threadinfo_info(size_t numthreads)
-  {
-    assert(numthreads <= NUM_CORES);
-
-    thread_mult = std::min(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
-
-    thread_mask = NUM_THREADS_PER_CORE / thread_mult;
-    assert(thread_mask && (thread_mask & (thread_mask-1)) == 0);
-
-    thread_mask = ~(thread_mask-1);
-  }
-
-  static inline
-  void bind_to_core(pthread_t thr, size_t cpu)
-  {
-    assert(cpu < NUM_CORES);
-
-    // core 0,2,4,..,18,20,22,..,38: 0            <= num < numthreads/2 -> (2*num % numthreads)
-    // core 1,3,5,..,19,21,23,..,39: numthreads/2 <= num < numthreads   -> (2*(num - (numthreads/2) ~1) % numthreads) | 1
-
-    cpu = cpu * thread_mult;
-
-    const size_t socket_num = size_t(cpu >= (NUM_CORES_PER_SOCKET * NUM_THREADS_PER_CORE));
-
-    cpu = (cpu - (NUM_CORES_PER_SOCKET * NUM_THREADS_PER_CORE * socket_num)) * NUM_SOCKETS / thread_mult + socket_num;
-
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpu, &cpuset);
-
-    /* int rc = */ pthread_setaffinity_np(thr, sizeof(cpu_set_t), &cpuset);
-  }
-
-  static inline
-  size_t num_tries(size_t thisthr, size_t thatthr)
-  {
-    size_t thiscore = thisthr & thread_mask;
-    size_t thatcore = thatthr & thread_mask;
-
-    if (thiscore == thatcore) return 6;
-
-    if ((thiscore < NUM_CORES_PER_SOCKET) == (thatcore < NUM_CORES_PER_SOCKET)) return 4;
-
-    return 2;
-  }
-
-#elif defined(POWER8_DUAL_SOCKET)
-
-  static const size_t NUM_SOCKETS          = 2;
-  static const size_t NUM_CORES_PER_SOCKET = 10;
-  static const size_t NUM_THREADS_PER_CORE = 8;
-  static const size_t NUM_CPUS             = NUM_CORES_PER_SOCKET * NUM_SOCKETS;
-  static const size_t NUM_CORES            = NUM_CPUS * NUM_THREADS_PER_CORE;
-
-  static size_t thread_mult = 1;  // == NUM_THREADS_PER_CORE if hyperthreading is not needed
-  static size_t thread_mask = ~0; // used to identify sibling hyperthreads
-
-  static inline
-  size_t set_threadinfo_info(size_t numthreads)
-  {
-    assert(numthreads <= NUM_CORES);
-
-    thread_mult = std::min(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
-
-    thread_mask = NUM_THREADS_PER_CORE / thread_mult;
-    assert(thread_mask && (thread_mask & (thread_mask-1)) == 0);
-
-    thread_mask = ~(thread_mask-1);
-  }
-
-  void bind_to_core(pthread_t thr, size_t num, size_t numthreads)
-  {
-    static_assert((NUM_THREADS_PER_CORE & (NUM_THREADS_PER_CORE-1)) == 0, "assumed power of 2");
-
-    //  0 -> 0,  1 ->  8, 2 -> 16, .., 19 -> 152
-    // 20 -> 1, 21 ->  9,
-    // 40 -> 2, 41 -> 10,
-
-    num = num * thread_mult;
-
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(num, &cpuset);
-
-    /* int rc = */ pthread_setaffinity_np(thr, sizeof(cpu_set_t), &cpuset);
-  }
-
-  static inline
-  size_t num_tries(size_t thisthr, size_t thatthr)
-  {
-    size_t thiscore = thisthr & thread_mask;
-    size_t thatcore = thatthr & thread_mask;
-
-    if (thiscore == thatcore) return 8;
-
-    if ((thiscore < NUM_CORES_PER_SOCKET) == (thatcore < NUM_CORES_PER_SOCKET)) return 4;
-
-    return 1;
-  }
-
-
-#elif defined(INTEL_PHI_1)
-
-  static const size_t CORES   = 4;
-  static const size_t CPUS    = 61;
-  static const size_t THREADS = CORES * CPUS;
-
-  static inline
-  void bind_to_core(pthread_t thr, size_t num, size_t /*numthreads*/)
-  {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(num, &cpuset);
-
-    /* int rc = */ pthread_setaffinity_np(thr, sizeof(cpu_set_t), &cpuset);
-  }
-
-  static inline
-  size_t num_tries(size_t lhs, size_t rhs)
-  {
-    // same CPU
-    if ((lhs & ~3) == (rhs & ~3) && ((lhs & 3) != 0))
-    {
-      return 4;
-    }
-
-    size_t dist = std::abs(int(lhs) - int(rhs));
-
-    dist = std::min(dist, THREADS-dist);
-
-    size_t res;
-
-    if (dist <= 4 * CORES)       res = 2;
-    else if (rhs == 0)           res = 1;
-    else                         res = 0;
-
-    if ((lhs & 3) == 0) res += 1;
-
-    return res;
-  }
-
-#else /* DEFAULT */
-
-  static inline
-  void set_threadinfo_info(size_t) {}
-
-  static inline
-  void bind_to_core(pthread_t, size_t) {}
-
-  static inline
-  size_t num_tries(size_t, size_t two)
-  {
-    return 4;
-  }
-
-#endif
 
   template <class T>
   struct dataQ
@@ -220,7 +47,7 @@ namespace uab
       return tl.val.load(std::memory_order_relaxed) < BLK;
     }
 
-    void enq(T el)
+    void enq(const T& el)
     {
       // \mo relaxed, b/c tl is only modified by this thread
       const size_t tail = tl.val.load(std::memory_order_relaxed);
@@ -232,9 +59,8 @@ namespace uab
       tl.val.store(tail+1, std::memory_order_release);
     }
 
-    std::pair<T, dataQ<T>*> deq()
+    dataQ<T>* deq(T& res)
     {
-      T      res;
       // \mo relaxed, b/c hd does not publish anything
       size_t head = hd.val.load(std::memory_order_relaxed);
       // \mo relaxed, b/c we are on the same thread
@@ -247,19 +73,13 @@ namespace uab
           // \mo consume, b/c we want to see initialized memory
           dataQ<T>* nxt = next.val.load(std::memory_order_relaxed);
 
-          if (nxt == nullptr)
-          {
-            return std::make_pair(T(), nullptr);
-          }
+          if (nxt == nullptr) return nullptr;
 
-          return nxt->deq();
+          return nxt->deq(res);
         }
 
         assert(head < BLK);
-        if (head >= tail)
-        {
-          return std::make_pair(T(), nullptr);
-        }
+        if (head >= tail) return nullptr;
 
         res = data[head];
         // \mo release to prevent reordering with previous read of data[head]
@@ -268,16 +88,14 @@ namespace uab
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
-          return std::make_pair(res, this);
+          return this;
         }
       }
     }
 
     template <class Alloc>
-    std::pair<T, dataQ<T>*> deq_steal(size_t tries, Alloc alloc)
+    dataQ<T>* deq_steal(T& res, size_t tries, Alloc alloc)
     {
-      T      res;
-
       size_t attempts = tries;
 
       // \mo relaxed, b/c hd does not publish anything
@@ -294,19 +112,13 @@ namespace uab
 
           alloc.unpin(this, -1);
 
-          if (nxt == nullptr)
-          {
-            return std::make_pair(T(), nullptr);
-          }
+          if (nxt == nullptr) return nullptr;
 
-          return nxt->deq_steal(tries, alloc);
+          return nxt->deq_steal(res, tries, alloc);
         }
 
         assert(head < BLK);
-        if (head >= tail)
-        {
-          return std::make_pair(T(), nullptr);
-        }
+        if (head >= tail) return nullptr;
 
         res = data[head];
         // \mo release to prevent reordering with previous read of data[head]
@@ -315,13 +127,13 @@ namespace uab
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
-          return std::make_pair(res, this);
+          return this;
         }
 
         --attempts;
       }
 
-      return std::make_pair(T(), nullptr);
+      return nullptr;
     }
   };
 
@@ -366,7 +178,7 @@ namespace uab
       return tmp;
     }
 
-    void enq(T el)
+    void enq(const T& el)
     {
       ++tasks_made;
 
@@ -407,7 +219,7 @@ namespace uab
       return true;
     }
 
-    std::pair<T, bool> deq()
+    bool deq(T& res)
     {
       typedef typename node_alloc_type::pinguard PinGuard;
 
@@ -415,14 +227,11 @@ namespace uab
       dataQ<T>*               curr = head.val.load(std::memory_order_relaxed);
       assert(curr);
 
-      std::pair<T, dataQ<T>*> actl = curr->deq();
+      dataQ<T>* actl = curr->deq(res);
 
-      if (actl.second == nullptr)
-      {
-        return std::make_pair(actl.first, false);
-      }
+      if (actl == nullptr) return false;
 
-      if (curr != actl.second)
+      if (curr != actl)
       {
         node_alloc_type alloc = get_allocator();
         PinGuard        pinguard(alloc, SZPINWALL, lockfree::unordered());
@@ -433,17 +242,17 @@ namespace uab
 
           curr = curr->next.val.load(std::memory_order_relaxed);
           alloc.deallocate(tmp, 1);
-        } while (curr != actl.second);
+        } while (curr != actl);
 
         // \mo release to make content of new head available
-        head.val.store(actl.second, std::memory_order_release);
+        head.val.store(actl, std::memory_order_release);
         numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
       }
 
-      return std::make_pair(actl.first, true);
+      return true;
     }
 
-    std::pair<T, bool> deq_steal(size_t tries)
+    bool deq_steal(T& res, size_t tries)
     {
       typedef typename node_alloc_type::pinguard PinGuard;
 
@@ -451,12 +260,10 @@ namespace uab
       PinGuard        pinguard(alloc, SZPINWALL);
 
       // \mo consume, b/c we need to see memory initialized
-      dataQ<T>*               curr = alloc.template pin<std::memory_order_consume>(head.val);
+      dataQ<T>*       curr = alloc.template pin<std::memory_order_consume>(head.val);
       assert(curr);
 
-      std::pair<T, dataQ<T>*> actl = curr->deq_steal(tries, alloc);
-
-      return std::make_pair(actl.first, actl.second != nullptr);
+      return curr->deq_steal(res, tries, alloc) != nullptr;
     }
 
     void qrelease_memory()
@@ -561,40 +368,49 @@ namespace uab
       return active.val.load(std::memory_order_relaxed) > 0;
     }
 
-    std::pair<T, bool> deq()
+    bool deq(T& res)
     {
-      static const size_t SAMPLESIZE = 8;
+      static const size_t SAMPLESIZE = 4;
 
-      std::pair<T, bool> res = tq_loc->deq();
-      if (res.second) return res;
+      bool succ = tq_loc->deq(res);
+
+      if (succ) return succ;
 
       // estimate average number of tasks by using rolling average
       size_t             tasks_avail[SAMPLESIZE];
       size_t             tasks_sum = 0;
+      size_t             thrid     = last_victim;
 
       {
         size_t           tasks_i = 0;
-        size_t           thrid  = last_victim;
+        size_t           tid     = thrid;
+        size_t           max     = 0;
 
         while (tasks_i < SAMPLESIZE)
         {
-          tasq* victim = taskq[thrid].val.load(std::memory_order_consume);
+          tasq*          victim = taskq[tid].val.load(std::memory_order_consume);
 
           if (victim)
           {
-            tasks_sum += tasks_avail[tasks_i] = victim->numtasks.val.load(std::memory_order_relaxed);
+            tasks_avail[tasks_i] = victim->numtasks.val.load(std::memory_order_relaxed);
+            tasks_sum += tasks_avail[tasks_i];
+
+            if (tasks_avail[tasks_i] > max)
+            {
+              max = tasks_avail[tasks_i];
+              last_victim = thrid = tid;
+            }
           }
 
           ++tasks_i;
-          ++thrid;
-          if (thrid == MAXTQ) thrid = 0;
+          tid += 3;
+          while (tid >= MAXTQ) { tid -= MAXTQ; }
         }
       }
 
 
       {
         // work stealing
-        size_t             thrid  = last_victim;
         size_t             tasks_i = 0;
 
         do
@@ -604,16 +420,19 @@ namespace uab
 
           if (victim)
           {
-            size_t tries = num_tries(idx, thrid);
+            size_t tries = arch_model::num_tries(idx, thrid);
             size_t avail = victim->numtasks.val.load(std::memory_order_relaxed);
 
-            if (avail * 2 > tasks_sum)
+            if (avail * (SAMPLESIZE/2) > tasks_sum)
             {
-              tries += 2;
-
-              if (avail * 4 > tasks_sum) tries += 2;
+              tries += 4;
 
               tries = std::min(tries, size_t(8));
+            }
+            else if (avail * (SAMPLESIZE*4) < tasks_sum)
+            {
+              // tries -=2;
+              tries = 0;
             }
 
             tasks_sum -= tasks_avail[tasks_i];
@@ -621,13 +440,13 @@ namespace uab
             ++tasks_i;
             if (tasks_i == SAMPLESIZE) tasks_i = 0;
 
-            res = victim->deq_steal(tries);
+            succ = victim->deq_steal(res, tries);
 
-            if (res.second)
+            if (succ)
             {
               tq_rem      = victim;
               last_victim = thrid;
-              return res;
+              return succ;
             }
           }
 
@@ -637,8 +456,8 @@ namespace uab
       }
 
       last_victim = 0;
-      assert(!res.second);
-      return res;
+      assert(!succ);
+      return succ;
     }
 
     void qrelease_memory()
@@ -684,7 +503,7 @@ namespace uab
   {
     typedef typename P::task_type task_type;
 
-    bind_to_core(pthread_self(), thrnum);
+    arch_model::bind_to_core(pthread_self(), thrnum);
 
 #if PRINT_STATS
     work[thrnum].core_init = sched_getcpu();
@@ -701,22 +520,20 @@ namespace uab
     // run until no more tasks can be found
     do
     {
-      std::pair<task_type, bool> work = tasks->deq();
+      task_type work;
+      bool      succ = tasks->deq(work);
 
-      while (work.second)
+      while (succ)
       {
         tasks->work_started();
-        val  += fun(*tasks, work.first);
+        val  += fun(*tasks, work);
         tasks->work_completed();
 
-        work  = tasks->deq();
+        succ  = tasks->deq(work);
       }
 
       tasks->check_active();
     } while (tasks->has_work());
-
-    //~ std::pair<T, bool> test = pool<T>::tq_loc->deq();
-    //~ assert(!test.second);
 
     *res = val;
 
@@ -820,7 +637,7 @@ namespace uab
   {
     typedef decltype(fun(*new pool<T>(numthreads, task), task)) R;
 
-    set_threadinfo_info(numthreads);
+    arch_model::set_threadinfo_info(numthreads);
 
     pool<T> taskpool(numthreads, task);
     R       res;
@@ -845,7 +662,7 @@ namespace uab
   {
     typedef decltype(fun(*new pool<T,A>(task), task)) R;
 
-    set_threadinfo_info(numthreads);
+    arch_model::set_threadinfo_info(numthreads);
 
     pool<T> taskpool(task);
     R       res;

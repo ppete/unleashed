@@ -179,7 +179,7 @@ namespace htm
 #ifdef NDEBUG
   #define htm_assert(C) ((void) 0)
 #else
-  inline
+  static inline
   void htm_assert(bool b)
   {
     if (!b)

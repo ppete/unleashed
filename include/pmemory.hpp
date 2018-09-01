@@ -542,7 +542,7 @@ namespace lockfree
   // Auxiliary lock-free stack implementation
 
   template <class _Tp, class _Alloc>
-  struct alignas(CACHELINESZ) pub_scan_data
+  struct pub_scan_data
   {
       typedef std::allocator_traits<_Alloc>                          _OrigAlloc_traits;
       typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp> _TpAlloc;
@@ -1110,7 +1110,7 @@ namespace lockfree
   };
 
   template <class _Tp, class _Alloc>
-  struct alignas(CACHELINESZ) epoch_data
+  struct epoch_data
   {
     static const size_t INITIAL_RECLAIMATION_PERIOD = 20;
     typedef std::forward_list<release_entry<_Tp, _Alloc> > removal_collection;
