@@ -1,0 +1,543 @@
+#include <iostream>
+#include <iomanip>
+#include <chrono>
+#include <cassert>
+#include <cstdlib>
+#include <cmath>
+#include <thread>
+#include <list>
+#include <vector>
+
+#ifndef NUMTHREADS
+#define NUMTHREADS (20)
+#endif /* NUMTHREADS */
+
+#ifndef PROBLEM_SIZE
+#define PROBLEM_SIZE (13)
+#endif /* PROBLEM_SIZE */
+
+#define PRINT_STATS 0
+
+#if OMP_VERSION
+#include <omp.h>
+#endif
+
+#if TBB_VERSION
+#include <tbb/task_scheduler_init.h>
+#include <tbb/task_group.h>
+#endif
+
+#if BLAZE_VERSION
+  #include "archmodel.hpp"
+
+  // typedef uab::power_arch<2, 20, 4> arch_model; // power9 dual socket
+  // typedef uab::power_arch<2, 10, 8> arch_model; // power8 dual socket
+  typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
+
+  #if HTM_ENABLED
+  #include "htm-tasks.hpp"
+  #else
+  #include "tasks.hpp"
+  #endif /* HTM_ENABLED */
+#endif /* BLAZE_VERSION */
+
+#if CILK_VERSION
+#include <cstdio>
+#include <cilk/cilk.h>
+#include <cilk/reducer_opadd.h>
+#include <cilk/cilk_api.h>
+#endif /* CILK_VERSION */
+
+#if QTHREADS_VERSION
+#include <sstream>
+#include <qthread/qthread.hpp>
+#include <qthread/sinc.h>
+#endif /* QTHREADS_VERSION */
+
+#include "atomicutil.hpp"
+
+template <size_t N>
+struct board
+{
+  char   queens[N];
+  size_t rows;
+
+  board()
+  : rows(0)
+  {}
+};
+
+template <size_t N>
+static inline
+void print_board(board<N> task)
+{
+  std::cout << "N = " << N         << std::endl;
+  std::cout << "r = " << task.rows << std::endl;
+
+  for (size_t i = 0; i < task.rows; ++i)
+    std::cout << size_t(task.queens[i]) << " ";
+
+  std::cout << std::endl << std::endl;
+}
+
+
+template <size_t N>
+static inline
+bool isComplete(const board<N>& brd)
+{
+  return brd.rows == N;
+}
+
+template <size_t N>
+static inline
+bool isValid(const board<N>& board)
+{
+  size_t rr  = board.rows;
+
+  if (rr < 2) return true;
+
+  int    col = board.queens[rr-1];
+  int    lhs = col;
+  int    rhs = col;
+
+  do
+  {
+    --rr;
+    --lhs;
+    ++rhs;
+
+    int thisrow = board.queens[rr-1];
+
+    if ((thisrow == col) || (thisrow == lhs) || (thisrow == rhs))
+    {
+      return false;
+    }
+  } while (rr > 1);
+
+  return true;
+}
+
+
+#if OMP_VERSION
+
+//~ histogram<long double> hist(0.0, 1.0, 100);
+
+static inline
+size_t thread_num()
+{
+  return omp_get_thread_num();
+}
+
+#if PRINT_STATS
+
+typedef std::pair<size_t, size_t> result_t;
+
+static inline
+size_t& result(uab::aligned_type<result_t, CACHELINESZ>& v)
+{
+  return v.val.first;
+}
+
+static inline
+size_t& count(uab::aligned_type<result_t, CACHELINESZ>& v)
+{
+  return v.val.second;
+}
+
+#else
+
+typedef size_t result_t;
+
+static inline
+size_t& result(uab::aligned_type<result_t, CACHELINESZ>& v)
+{
+  return v.val;
+}
+
+#endif /* PRINT_STATS */
+
+template <size_t N>
+void compute_nqueens(board<N> task, uab::aligned_type<result_t, CACHELINESZ>* s)
+{
+  const size_t thrnum = thread_num();
+
+  for (;;)
+  {
+
+#if PRINT_STATS
+    ++(count(s[thrnum]));
+#endif
+
+    // check if last added queen is valid
+    if (!isValid(task)) return;
+
+    // if board is full
+    if (isComplete(task))
+    {
+      ++(result(s[thrnum]));
+      return;
+    }
+
+    for (size_t i = N-1; i > 0; --i)
+    {
+      board<N> newtask = task;
+
+      newtask.queens[task.rows] = i;
+      ++newtask.rows;
+
+      #pragma omp task
+      compute_nqueens(newtask, s);
+    }
+
+    task.queens[task.rows] = 0;
+    ++task.rows;
+  }
+}
+
+template <size_t N>
+size_t nqueens_task()
+{
+  uab::aligned_type<result_t, CACHELINESZ> s[NUMTHREADS];
+  size_t                                   res  = 0;
+  board<N>                                 brd;
+
+  omp_set_num_threads(NUMTHREADS);
+
+  #pragma omp parallel firstprivate(brd) shared(res,s)
+  {
+    size_t thrnum = thread_num();
+
+    assert(thrnum < NUMTHREADS);
+    s[thrnum] = result_t();
+
+    #pragma omp single
+    #pragma omp taskgroup
+    {
+      compute_nqueens(brd, s);
+    }
+
+    #pragma omp atomic
+    res += result(s[thrnum]);
+  }
+
+#if PRINT_STATS
+  for (size_t i = 0; i < NUMTHREADS; ++i)
+    std::cout << i << ": " << count(s[i]) << std::endl;
+#endif
+
+  return res;
+}
+#endif /* OMP_VERSION */
+
+#if TBB_VERSION
+
+template <class G, size_t N>
+size_t compute_nqueens(G& taskgroup, board<N> task)
+{
+  for (;;)
+  {
+    // check if last added queen is valid
+    if (!isValid(task)) return 0;
+
+    // if board is full
+    if (isComplete(task)) return 1;
+
+    for (size_t i = N-1; i > 0; --i)
+    {
+      board<N> newtask = task;
+
+      newtask.queens[task.rows] = i;
+      ++newtask.rows;
+
+      taskgroup.run( [&taskgroup, newtask]()->void
+                   { compute_nqueens(taskgroup, newtask);
+                   }
+                 );
+    }
+
+    task.queens[task.rows] = 0;
+    ++task.rows;
+  }
+}
+
+template <size_t N>
+size_t nqueens_task()
+{
+  tbb::task_scheduler_init init(NUMTHREADS);
+  tbb::task_group          g;
+  board<N>                 brd;
+
+  compute_nqueens(g, brd);
+
+  g.wait();
+  return 0;
+}
+
+#endif /* TBB_VERSION */
+
+#if CILK_VERSION
+
+void set_cilk_workers(int n)
+{
+  assert(n <= 9999);
+
+  char str[5];
+
+  sprintf(str, "%d", n);
+
+  bool success = __cilkrts_set_param("nworkers", str) != 0;
+  assert(success);
+}
+
+
+template <size_t N>
+void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
+{
+  for (;;)
+  {
+    // check if last added queen is valid
+    if (!isValid(task)) return;
+
+    // if board is full
+    if (isComplete(task)) { sum += 1; return; }
+
+    for (size_t i = N-1; i > 0; --i)
+    {
+      board<N> newtask = task;
+
+      newtask.queens[task.rows] = i;
+      ++newtask.rows;
+
+      cilk_spawn compute_nqueens(sum, newtask);
+    }
+
+    task.queens[task.rows] = 0;
+    ++task.rows;
+  }
+}
+
+template <size_t N>
+size_t nqueens_task()
+{
+  set_cilk_workers(NUMTHREADS);
+
+  cilk::reducer_opadd<size_t> sum;
+  board<N>                    brd;
+
+  compute_nqueens(sum, brd);
+  return sum.get_value();
+}
+
+#endif /* CILK_VERSION */
+
+
+#if QTHREADS_VERSION
+
+template <size_t N>
+struct qtask
+{
+  board<N>    brd;
+  qt_sinc_t*  sinc;
+};
+
+
+void init_qthreads()
+{
+  std::stringstream str;
+
+  str << "QTHREAD_HWPAR=" << NUMTHREADS;
+
+  char* envset = new char[str.str().size()+1];
+
+  memcpy(envset, str.str().c_str(), str.str().size()+1);
+  putenv(envset);
+
+  qthread_initialize();
+}
+
+
+template <size_t N>
+aligned_t compute_nqueens(void* qtsk)
+{
+  qtask<N>& task = *reinterpret_cast<qtask<N>*>(qtsk);
+
+  for (;;)
+  {
+    // check if last added queen is valid
+    if (!isValid(task.brd))
+    {
+      size_t res = 0;
+
+      qt_sinc_submit(task.sinc, &res);
+      delete &task;
+      return aligned_t();
+    }
+
+    // if board is full
+    if (isComplete(task.brd))
+    {
+      size_t res = 1;
+
+      qt_sinc_submit(task.sinc, &res);
+      delete &task;
+      return aligned_t();
+    }
+
+    // summative increase for tasks created in loop
+    qt_sinc_expect(task.sinc, N-1);
+
+    for (size_t i = N-1; i > 0; --i)
+    {
+      board<N> newtask = task.brd;
+
+      newtask.queens[task.brd.rows] = i;
+      ++newtask.rows;
+
+      qthread_fork( compute_nqueens<N>,
+                    new qtask<N>{ newtask, task.sinc},
+                    nullptr
+                  );
+    }
+
+    task.brd.queens[task.brd.rows] = 0;
+    ++task.brd.rows;
+  }
+}
+
+template <class D>
+void reduce(void* target, const void* source)
+{
+  D*       tgt = reinterpret_cast<D*>(target);
+  const D* src = reinterpret_cast<const D*>(source);
+
+  *tgt += *src;
+}
+
+template <size_t N>
+size_t nqueens_task()
+{
+  size_t     result = 0;
+  qt_sinc_t* sinc   = qt_sinc_create(sizeof(size_t), &result, reduce<size_t>, 0);
+  board<N>   brd;
+
+  compute_nqueens<N>(new qtask<N>{brd, sinc});
+
+  qt_sinc_wait(sinc, &result);
+  return result;
+}
+
+#endif /* QTHREADS_VERSION */
+
+
+
+
+#if BLAZE_VERSION
+
+struct compute_nqueens
+{
+  template <class P, size_t N>
+  size_t operator()(P& pool, board<N> task)
+  {
+    size_t res = 0;
+
+    for (;;)
+    {
+      // check if last added queen is valid
+      if (!isValid(task)) return res;
+
+      // if board is full
+      if (isComplete(task)) return res+1;
+
+      for (size_t i = N-1; i > 0; --i)
+      {
+        board<N> newtask = task;
+
+        newtask.queens[task.rows] = i;
+        ++newtask.rows;
+
+        // if (newtask.rows < PROBLEM_SIZE/2)
+          pool.enq(newtask);
+        //else
+          // res += (*this)(pool, newtask);
+      }
+
+      task.queens[task.rows] = 0;
+      ++task.rows;
+    }
+  }
+};
+
+template <size_t N>
+size_t nqueens_task()
+{
+  board<N> brd;
+
+  return uab::execute_tasks(NUMTHREADS, compute_nqueens(), brd);
+}
+
+#endif /* BLAZE_VERSION */
+
+#if SEQUENTIAL_VERSION
+template <size_t N>
+size_t nqueens_seq(board<N> task)
+{
+  size_t res = 0;
+
+  for (;;)
+  {
+    // check if last added queen is valid
+    if (!isValid(task))
+    {
+      return res;
+    }
+
+    // if board is full
+    if (isComplete(task)) return res+1;
+
+    for (size_t i = N-1; i > 0; --i)
+    {
+      board<N> newtask = task;
+
+      newtask.queens[task.rows] = i;
+      ++newtask.rows;
+
+      res += nqueens_seq(newtask);
+    }
+
+    task.queens[task.rows] = 0;
+    ++task.rows;
+  }
+}
+
+template <size_t N>
+size_t nqueens_seq()
+{
+  return nqueens_seq(board<N>());
+}
+#endif /* SEQUENTIAL_VERSION */
+
+
+int main()
+{
+#if QTHREADS_VERSION
+  init_qthreads();
+#endif /* QTHREADS_VERSION */
+
+  typedef std::chrono::time_point<std::chrono::system_clock> time_point;
+
+  time_point     starttime = std::chrono::system_clock::now();
+
+  // executes loop in parallel
+  //   and uses a reduction algorithm to combine all pi values that were
+  //   computed across threads.
+  size_t num  = nqueens_task<PROBLEM_SIZE>();
+
+  time_point     endtime = std::chrono::system_clock::now();
+  int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
+
+  std::cout << "num       = " << PROBLEM_SIZE << std::endl;
+  std::cout << "solutions = " << num          << std::endl;
+  std::cout << "time      = " << elapsedtime  << "ms" << std::endl;
+  std::cerr << elapsedtime << std::endl;
+  return 0;
+}
