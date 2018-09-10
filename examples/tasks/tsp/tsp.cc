@@ -1,7 +1,38 @@
-// openmp:     g++ -std=c++11 -Wall -Wextra -pedantic -O2 -fopenmp -DOMP_VERSION=1 pi.cc -o /tmp/pi.bin
-// blaze:      g++ -std=c++11 -Wall -Wextra -pedantic -O2 -pthread -DBLAZE_VERSION=1 pi.cc -o /tmp/pi.bin
-// tbb:        g++ -std=c++11 -Wall -Wextra -pedantic -O2 -pthread -DTBB_VERSION=1 -I$TBB_HOME/include -L$TBB_HOME/lib -ltbb pi.cc -o /tmp/pi.bin
-// sequential? g++ -std=c++11 -Wall -Wextra -pedantic -O2 -pthread pi.cc -o /tmp/pi.bin
+/// Task-based solution for the Traveling Salesman Problem
+///
+/// Implementer: Christina Peterson (UCF), Peter Pirkelbauer (UAB)
+
+/**
+ * This program is part of the Blaze-Task Test Suite
+ * Copyright (c) 2018, University of Central Florida
+ * Copyright (c) 2018, University of Alabama at Birmingham
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ * list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ * may be used to endorse or promote products derived from this software without
+ * specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 
 #include <stdio.h>
 #include <string.h>
@@ -33,17 +64,17 @@
 #endif
 
 #if BLAZE_VERSION
-  #include "archmodel.hpp"
+  // NOTE: include archmodel.hpp and typedef arch_model to target system
+  //       to make number of work-stealing attempts sensitive to
+  //       thief-victim cache hierachy. Mileage varies depending on
+  //       benchmark.
+  //~ #include "archmodel.hpp"
 
-  // typedef uab::power_arch<2, 20, 4> arch_model; // power9 dual socket
-  // typedef uab::power_arch<2, 10, 8> arch_model; // power8 dual socket
-  typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
+  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
+  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
+  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
 
-  #if HTM_ENABLED
-  #include "htm-tasks.hpp"
-  #else
   #include "tasks.hpp"
-  #endif /* HTM_ENABLED */
 #endif /* BLAZE_VERSION */
 
 #if CILK_VERSION
@@ -63,11 +94,12 @@
 
 #define MAX_NODES 12
 
-#define MAX_INT 2147483647
+typedef long result_t;
 
-std::atomic<long double> min_path;
+std::atomic<result_t> min_path;
 
-struct BranchSet {
+struct BranchSet
+{
   int left_branch[PROBLEM_SIZE][PROBLEM_SIZE];
   int right_branch[PROBLEM_SIZE][PROBLEM_SIZE];
 };
@@ -75,6 +107,7 @@ struct BranchSet {
 struct tsp_task
 {
   typedef std::shared_ptr<BranchSet> branch_ptr;
+  //~ typedef BranchSet* branch_ptr;
 
   int**      graph;
   branch_ptr branch;
@@ -92,9 +125,9 @@ struct tsp_task
 
 void print_graph(int graph[PROBLEM_SIZE][PROBLEM_SIZE])
 {
-  for(uint64_t i = 0; i < PROBLEM_SIZE; i++)
+  for(size_t i = 0; i < PROBLEM_SIZE; i++)
   {
-    for(uint64_t j = 0; j < PROBLEM_SIZE; j++)
+    for(size_t j = 0; j < PROBLEM_SIZE; j++)
     {
       printf("%d ", graph[i][j]);
     }
@@ -102,19 +135,33 @@ void print_graph(int graph[PROBLEM_SIZE][PROBLEM_SIZE])
   }
 }
 
-enum {
+enum branch_kind
+{
   INCLUDE = 1,
-  EXCLUDE,
-  UNDECIDED
+  EXCLUDE   = 2,
+  UNDECIDED = 3
 };
 
-void left_include_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i);
-void left_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i);
 
-void left_include_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i)
+static inline
+void upd_lower_bound_if_needed(result_t val)
+{
+  result_t min = min_path.load(std::memory_order_relaxed);
+
+  while (val < min)
+  {
+    min_path.compare_exchange_strong(min, val, std::memory_order_relaxed, std::memory_order_relaxed);
+  }
+}
+
+
+void left_include_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i);
+void left_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i);
+
+void left_include_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i)
 {
   //printf("Inside left_include_edges\n");
-  for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+  for(size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
     if(j != i)
     {
@@ -135,10 +182,10 @@ void left_include_edges(BranchSet* branch, int* include_count, int* exclude_coun
   }
 }
 
-void left_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i)
+void left_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i)
 {
   //printf("Inside left_exclude_edges\n");
-  for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+  for(size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
     if(j != i)
     {
@@ -159,13 +206,13 @@ void left_exclude_edges(BranchSet* branch, int* include_count, int* exclude_coun
   }
 }
 
-void right_include_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i);
-void right_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i);
+void right_include_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i);
+void right_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i);
 
-void right_include_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i)
+void right_include_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i)
 {
   //printf("Inside right_include_edges\n");
-  for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+  for (size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
     if(j != i)
     {
@@ -186,10 +233,10 @@ void right_include_edges(BranchSet* branch, int* include_count, int* exclude_cou
   }
 }
 
-void right_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, uint64_t i)
+void right_exclude_edges(BranchSet* branch, int* include_count, int* exclude_count, size_t i)
 {
   //printf("Inside right_exclude_edges\n");
-  for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+  for (size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
     if(j != i)
     {
@@ -222,16 +269,18 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
   int right_exc_count[PROBLEM_SIZE];
 
   //Try to find a more efficient way of handling this later
-  for(uint64_t i = 0; i < PROBLEM_SIZE; ++i)
+  for (size_t i = 0; i < PROBLEM_SIZE; ++i)
   {
     left_inc_count[i] = 0;
     left_exc_count[i] = 0;
     right_inc_count[i] = 0;
     right_exc_count[i] = 0;
-    for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+
+    for (size_t j = 0; j < PROBLEM_SIZE; ++j)
     {
       branches->left_branch[i][j] = explore[i][j];
       branches->right_branch[i][j] = explore[i][j];
+
       if(explore[i][j] == INCLUDE)
       {
         left_inc_count[i] = left_inc_count[i] + 1;
@@ -247,21 +296,24 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
 
   bool done = false;
 
-  for(uint64_t i = 0; i < PROBLEM_SIZE; ++i)
+  for(size_t i = 0; i < PROBLEM_SIZE; ++i)
   {
-    for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+    for(size_t j = 0; j < PROBLEM_SIZE; ++j)
     {
       if(i == j)
       {
         branches->left_branch[i][i] = UNDECIDED;
         branches->right_branch[i][i] = UNDECIDED;
-      } else {
-
-        if(explore[i][j] == UNDECIDED && done == false) //A decision has not yet been made regarding this edge
+      }
+      else
+      {
+        // A decision has not yet been made regarding this edge
+        if (explore[i][j] == UNDECIDED && done == false)
         {
           //Set left_branch
           branches->left_branch[i][j] = INCLUDE; //This edge will be included in the explored path
           branches->left_branch[j][i] = INCLUDE;
+
           //printf("Setting branches->left_branch[%lu][%lu] = %d\n", i, j, branches->left_branch[j][i]);
           left_inc_count[i] = left_inc_count[i] + 1;
           left_inc_count[j] = left_inc_count[j] + 1;
@@ -282,7 +334,7 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
           {
             //printf("Error: left_inc_count > 2\n");
             delete branches;
-            return NULL;
+            return nullptr;
           }
 
           //Set right_branch
@@ -292,13 +344,15 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
           right_exc_count[i] = right_exc_count[i] + 1;
           right_exc_count[j] = right_exc_count[j] + 1;
 
-          if(right_exc_count[i] == (PROBLEM_SIZE-3)) //Two edges must be included, and a node can't connect to itself, so 2 + 1 = 3
+          if (right_exc_count[i] == (PROBLEM_SIZE-3))
           {
+            // Two edges must be included, and a node can't connect to itself, so 2 + 1 = 3
             right_include_edges(branches, right_inc_count, right_exc_count, i);
           }
 
-          if(right_exc_count[j] == (PROBLEM_SIZE-3)) //Two edges must be included, and a node can't connect to itself, so 2 + 1 = 3
+          if (right_exc_count[j] == (PROBLEM_SIZE-3))
           {
+            // Two edges must be included, and a node can't connect to itself, so 2 + 1 = 3
             right_include_edges(branches, right_inc_count, right_exc_count, j);
           }
 
@@ -306,7 +360,7 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
           {
             //printf("Error: right_exc_count > (NUM_NODES - 3)\n");
             delete branches;
-            return NULL;
+            return nullptr;
           }
 
           done = true;
@@ -318,29 +372,30 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
   return branches;
 }
 
-long double compute_lower_bound(int** graph, int explore[PROBLEM_SIZE][PROBLEM_SIZE])
+result_t
+compute_lower_bound(int** graph, int explore[PROBLEM_SIZE][PROBLEM_SIZE])
 {
-  long double sum = 0;
-  for (uint64_t i = 0; i < PROBLEM_SIZE; ++i)
+  result_t sum = 0;
+
+  for (size_t i = 0; i < PROBLEM_SIZE; ++i)
   {
-    int min_edge1 = MAX_INT;
-    int min_edge2 = MAX_INT;
+    int min_edge1    = std::numeric_limits<int>::max();
+    int min_edge2    = std::numeric_limits<int>::max();
+    int forced_edge1 = std::numeric_limits<int>::max();
+    int forced_edge2 = std::numeric_limits<int>::max();
 
-    int forced_edge1 = MAX_INT;
-    int forced_edge2 = MAX_INT;
-
-    for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+    for(size_t j = 0; j < PROBLEM_SIZE; ++j)
     {
       if (i != j)
       {
         if(explore[i][j] == INCLUDE)
         {
-          if(forced_edge1 == MAX_INT)
+          if (forced_edge1 == std::numeric_limits<int>::max())
           {
             forced_edge1 = graph[i][j];
             //printf("forced_edge1 = %d\n", graph[i][j]);
           }
-          else if(forced_edge2 == MAX_INT)
+          else if(forced_edge2 == std::numeric_limits<int>::max())
           {
             forced_edge2 = graph[i][j];
             //printf("forced_edge2 = %d\n", graph[i][j]);
@@ -371,19 +426,19 @@ long double compute_lower_bound(int** graph, int explore[PROBLEM_SIZE][PROBLEM_S
       }
     }
 
-    if (forced_edge1 != MAX_INT && forced_edge2 != MAX_INT)
+    if (forced_edge1 != std::numeric_limits<int>::max() && forced_edge2 != std::numeric_limits<int>::max())
     {
-      sum = sum + (long double) (forced_edge1 + forced_edge2);
+      sum = sum + (result_t) (forced_edge1 + forced_edge2);
       //printf("Case 1: sum = %.2Lf\n", sum);
     }
-    else if (forced_edge1 != MAX_INT && forced_edge2 == MAX_INT)
+    else if (forced_edge1 != std::numeric_limits<int>::max() && forced_edge2 == std::numeric_limits<int>::max())
     {
-      sum = sum + (long double) (forced_edge1 + min_edge1);
+      sum = sum + (result_t) (forced_edge1 + min_edge1);
       //printf("Case 2: sum = %.2Lf\n", sum);
     }
-    else if (forced_edge1 == MAX_INT && forced_edge2 == MAX_INT)
+    else if (forced_edge1 == std::numeric_limits<int>::max() && forced_edge2 == std::numeric_limits<int>::max())
     {
-      sum = sum + (long double) (min_edge1 + min_edge2);
+      sum = sum + (result_t) (min_edge1 + min_edge2);
       //printf("Case 3: sum = %.2Lf\n", sum);
     }
     else
@@ -392,7 +447,7 @@ long double compute_lower_bound(int** graph, int explore[PROBLEM_SIZE][PROBLEM_S
     }
   }
 
-  return 0.5*sum;
+  return sum;
 }
 
 #if TBB_VERSION
@@ -406,15 +461,10 @@ auto tsp_adaptive(G& taskgroup, T task) -> void // std::pair<D, size_t>
     {
       if (task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->left_branch);
+        result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
         //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load(std::memory_order_relaxed);
 
-        while (result < min)
-        {
-          min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-        }
-
+        upd_lower_bound_if_needed(result);
         return;
       }
     }
@@ -422,16 +472,9 @@ auto tsp_adaptive(G& taskgroup, T task) -> void // std::pair<D, size_t>
     {
       if (task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->right_branch);
-        //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load();
+        result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
-        while (result < min)
-        {
-          min_path.compare_exchange_strong(min, result);
-          min = min_path.load();
-        }
-
+        upd_lower_bound_if_needed(result);
         return;
       }
     }
@@ -453,7 +496,7 @@ auto tsp_adaptive(G& taskgroup, T task) -> void // std::pair<D, size_t>
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
-  min_path.store(std::numeric_limits<long double>::max());
+  min_path.store(std::numeric_limits<result_t>::max());
 
   tbb::task_scheduler_init init(NUMTHREADS);
   tbb::task_group          g;
@@ -486,24 +529,19 @@ struct tsp_adaptive
       {
         if (task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
         {
-          long double result = compute_lower_bound(task.graph, task.branch->left_branch);
-          long double min = min_path.load(std::memory_order_relaxed);
-          while (result < min)
-          {
-            min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-          }
+          result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
+
+          upd_lower_bound_if_needed(result);
           return Void();
         }
-      } else {
+      }
+      else
+      {
         if (task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
         {
-          long double result = compute_lower_bound(task.graph, task.branch->right_branch);
-          long double min = min_path.load(std::memory_order_relaxed);
-          while(result < min)
-          {
-            min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-          }
+          result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
+          upd_lower_bound_if_needed(result);
           return Void();
         }
       }
@@ -524,7 +562,7 @@ struct tsp_adaptive
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
-  min_path.store(std::numeric_limits<long double>::max());
+  min_path.store(std::numeric_limits<result_t>::max());
 
   tsp_adaptive<tsp_task>   fun;
   tsp_task::branch_ptr    br(branch);
@@ -545,25 +583,19 @@ auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
     {
       if(task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->left_branch);
-        //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load(std::memory_order_relaxed);
-        while(result < min)
-        {
-          min_path.compare_exchange_strong(min, result, std::memory_order_relaxed, std::memory_order_relaxed);
-        }
+        result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
+
+        upd_lower_bound_if_needed(result);
         return;
       }
-    } else {
+    }
+    else
+    {
       if(task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->right_branch);
-        //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load(std::memory_order_relaxed);
-        while(result < min)
-        {
-          min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-        }
+        result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
+
+        upd_lower_bound_if_needed(result);
         return;
       }
     }
@@ -587,7 +619,7 @@ auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
-  min_path.store(std::numeric_limits<long double>::max());
+  min_path.store(std::numeric_limits<result_t>::max());
   omp_set_num_threads(NUMTHREADS);
 
   tsp_task::branch_ptr    br(branch);
@@ -644,25 +676,19 @@ BranchSet* tsp_adaptive_aux(cilk_task task)
   {
     if(task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
     {
-      long double result = compute_lower_bound(task.graph, task.branch->left_branch);
-      long double min = min_path.load(std::memory_order_relaxed);
+      result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
 
-      while(result < min)
-      {
-        min_path.compare_exchange_strong(min, result, std::memory_order_relaxed, std::memory_order_relaxed);
-      }
+      upd_lower_bound_if_needed(result);
       return nullptr;
     }
-  } else {
+  }
+  else
+  {
     if(task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
     {
-      long double result = compute_lower_bound(task.graph, task.branch->right_branch);
-      long double min = min_path.load(std::memory_order_relaxed);
+      result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
-      while(result < min)
-      {
-        min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-      }
+      upd_lower_bound_if_needed(result);
       return nullptr;
     }
   }
@@ -683,6 +709,12 @@ BranchSet* tsp_adaptive_aux(cilk_task task)
   return branch;
 }
 
+/// \brief
+///   auxiliary function to deallocate BranchSet objects
+/// \details
+///   tsp_adaptive_aux creates a new BranchSet objects and passes it to its sub-task.
+///   Since tsp_adaptive_aux implicitly waits until its sub-task has completed,
+///   tsp_adaptive can free the allocated memory after its return.
 void tsp_adaptive(cilk_task task)
 {
   BranchSet* branch = tsp_adaptive_aux(task);
@@ -693,7 +725,7 @@ void tsp_adaptive(cilk_task task)
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
-  min_path.store(std::numeric_limits<long double>::max());
+  min_path.store(std::numeric_limits<result_t>::max());
   set_cilk_workers(NUMTHREADS);
 
   tsp_adaptive(cilk_task(graph, branch, left));
@@ -722,7 +754,7 @@ void init_qthreads()
 
 struct qtask
 {
-  typedef std::shared_ptr<BranchSet> branch_ptr;
+  typedef tsp_task::branch_ptr branch_ptr;
 
   int**      graph;
   branch_ptr branch;
@@ -750,29 +782,21 @@ aligned_t tsp_adaptive(void* qtsk)
     {
       if(task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->left_branch);
-        //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load(std::memory_order_relaxed);
-        while(result < min)
-        {
-          min_path.compare_exchange_strong(min, result, std::memory_order_relaxed, std::memory_order_relaxed);
-        }
+        result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
 
+        upd_lower_bound_if_needed(result);
         delete &task;
         qt_sinc_submit(task.sinc, nullptr);
         return aligned_t();
       }
-    } else {
+    }
+    else
+    {
       if(task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
       {
-        long double result = compute_lower_bound(task.graph, task.branch->right_branch);
-        //printf("task.res = %.2Lf\n", task.res);
-        long double min = min_path.load(std::memory_order_relaxed);
-        while(result < min)
-        {
-          min_path.compare_exchange_strong(min, result,std::memory_order_relaxed,std::memory_order_relaxed);
-        }
+        result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
+        upd_lower_bound_if_needed(result);
         delete &task;
         qt_sinc_submit(task.sinc, nullptr);
         return aligned_t();
@@ -806,7 +830,7 @@ aligned_t tsp_adaptive(void* qtsk)
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
-  min_path.store(std::numeric_limits<long double>::max());
+  min_path.store(std::numeric_limits<result_t>::max());
 
   tsp_task::branch_ptr br(branch);
   qt_sinc_t*           sinc = qt_sinc_create(0, nullptr, nullptr, 0);
@@ -816,8 +840,6 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 }
 
 #endif /* QTHREADS_VERSION */
-
-
 
 
 int main()
@@ -849,10 +871,10 @@ int main()
 
   int** graph_ptr = (int**) malloc(PROBLEM_SIZE*sizeof(int*));
 
-  for(uint64_t i = 0; i < PROBLEM_SIZE; ++i)
+  for(size_t i = 0; i < PROBLEM_SIZE; ++i)
   {
     graph_ptr[i] = (int*) malloc(PROBLEM_SIZE*sizeof(int));
-    for(uint64_t j = 0; j < PROBLEM_SIZE; ++j)
+    for(size_t j = 0; j < PROBLEM_SIZE; ++j)
     {
       explore[i][j] = UNDECIDED;
       graph_ptr[i][j] = graph[i][j];
@@ -872,7 +894,7 @@ int main()
   std::cout << "Final result = " << min_path.load() << std::endl;
   std::cerr << elapsedtime << std::endl;
 
-  for(uint64_t i = 0; i < PROBLEM_SIZE; ++i)
+  for(size_t i = 0; i < PROBLEM_SIZE; ++i)
   {
     free(graph_ptr[i]);
   }

@@ -1,4 +1,4 @@
 SOURCES=tsp.cc
-LINKATOMIC=-latomic
+#~ LINKATOMIC=-latomic
 
 include ../common.mk

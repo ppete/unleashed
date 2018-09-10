@@ -56,19 +56,19 @@
 #endif /* TBB_VERSION */
 
 #if BLAZE_VERSION
-  #include "archmodel.hpp"
+  // NOTE: include archmodel.hpp and typedef arch_model to target system
+  //       to make number of work-stealing attempts sensitive to
+  //       thief-victim cache hierachy. Mileage varies depending on
+  //       benchmark.
+  //~ #include "archmodel.hpp"
 
-  // typedef uab::generic_arch<40>       arch_model;
-  // typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
-  // typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
-  typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
+  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
+  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
+  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
 
-  #if HTM_ENABLED
-  #include "htm-tasks.hpp"
-  #else
   #include "tasks.hpp"
-  #endif /* HTM_ENABLED */
 #endif /* BLAZE_VERSION */
+
 
 #if CILK_VERSION
 #include <cstdio>

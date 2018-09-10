@@ -11,6 +11,12 @@
 #include "atomicutil.hpp"
 #include "pmemory.hpp"
 
+#ifndef _ARCHMODEL_H
+#include "archmodel.hpp"
+
+typedef uab::generic_arch         arch_model;
+#endif
+
 namespace uab
 {
   static const size_t BLKSZ                = 1024;

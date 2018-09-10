@@ -1,3 +1,39 @@
+/**
+ * A simple implementation to solve the NQueens Problem
+ *
+ * (c) Peter Pirkelbauer (UAB) - 2018
+ */
+
+/**
+ * This program is part of the Blaze-Task Test Suite
+ * Copyright (c) 2018, University of Alabama at Birmingham
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ * list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ * may be used to endorse or promote products derived from this software without
+ * specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <iostream>
 #include <iomanip>
 #include <chrono>
@@ -28,17 +64,17 @@
 #endif
 
 #if BLAZE_VERSION
-  #include "archmodel.hpp"
+  // NOTE: include archmodel.hpp and typedef arch_model to target system
+  //       to make number of work-stealing attempts sensitive to
+  //       thief-victim cache hierachy. Mileage varies depending on
+  //       benchmark.
+  //~ #include "archmodel.hpp"
 
-  // typedef uab::power_arch<2, 20, 4> arch_model; // power9 dual socket
-  // typedef uab::power_arch<2, 10, 8> arch_model; // power8 dual socket
-  typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
+  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
+  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
+  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
 
-  #if HTM_ENABLED
-  #include "htm-tasks.hpp"
-  #else
   #include "tasks.hpp"
-  #endif /* HTM_ENABLED */
 #endif /* BLAZE_VERSION */
 
 #if CILK_VERSION

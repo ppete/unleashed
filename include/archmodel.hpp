@@ -1,6 +1,6 @@
 
 #ifndef _ARCHMODEL_H
-#define _ARCHMODEL_H
+#define _ARCHMODEL_H 1
 
 #include <cassert>
 
