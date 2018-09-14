@@ -69,7 +69,6 @@
   #include "tasks.hpp"
 #endif /* BLAZE_VERSION */
 
-
 #if CILK_VERSION
 #include <cstdio>
 #include <cilk/cilk.h>
@@ -552,6 +551,8 @@ void add_cell_task(floorplan_task task)
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
+  omp_set_num_threads(NUMTHREADS);
+
   floorplan_task::cell_ptr ptr(CELLS);
 
   #pragma omp parallel firstprivate(id, FOOTPRINT, BOARD, ptr)
@@ -781,7 +782,6 @@ void compute_task(floorplan_task t)
         memcpy(BEST_BOARD, board, sizeof(ibrd));
         bots_debug("N  %d\n", MIN_AREA.load(std::memory_order_relaxed));
         MIN_AREA.store(area, std::memory_order_relaxed);
-
       }
     }
     /* if area is less than best area */
@@ -1091,6 +1091,8 @@ _end:;
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, struct cell *CELLS)
 {
+    omp_set_num_threads(NUMTHREADS);
+
     #pragma omp parallel
     #pragma omp single
     #pragma omp taskgroup

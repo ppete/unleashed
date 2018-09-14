@@ -1075,6 +1075,8 @@ int pairalign()
 
    bots_message("Start aligning ");
 
+   omp_set_num_threads(NUMTHREADS);
+
    #pragma omp parallel
    {
    #pragma omp for schedule(dynamic) private(i,n,si,sj,len1,m)
