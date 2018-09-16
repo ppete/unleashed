@@ -82,7 +82,6 @@
 #include <qthread/sinc.h>
 #endif /* QTHREADS_VERSION */
 
-
 #define ROWS 64
 #define COLS 64
 #define DMAX 64
@@ -108,6 +107,9 @@ struct cell {
   int   above;
   int   next;
 };
+
+typedef std::shared_ptr<cell> cell_ptr;
+//~ typedef uab::counted_array<cell> cell_ptr;
 
 static cell*             gcells;
 static std::atomic<int>  MIN_AREA;
@@ -266,25 +268,54 @@ struct Void
 
 struct floorplan_task
 {
-  typedef std::shared_ptr<cell> cell_ptr;
-
   enum { AREA_TASK = -1 };
 
-  floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll, int x, int nws_j0, int nws_j1)
-  : id(num), CELLS(cll), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1)
+  floorplan_task(int num, coor footprn, ibrd brd, int x, int nws_j0, int nws_j1, cell_ptr cll)
+  : id(num), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1), CELLS(cll)
   {
     memcpy(FOOTPRINT, footprn, sizeof(coor));
     memcpy(BOARD, brd, sizeof(ibrd));
   }
 
   floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll)
-  : floorplan_task(num, footprn, brd, cll, AREA_TASK, 0, 0)
+  : floorplan_task(num, footprn, brd, AREA_TASK, 0, 0, cll)
   {}
 
   floorplan_task() {}
 
+#if 0 /* MANUAL_AUTO_OPS */
+  floorplan_task(const floorplan_task& o)
+  : id(o.id), i(o.i), NWS_j0(o.NWS_j0), NWS_j1(o.NWS_j1), CELLS(std::move(o.CELLS))
+  {
+    memcpy(FOOTPRINT, o.FOOTPRINT, sizeof(coor));
+    memcpy(BOARD,     o.BOARD,     sizeof(ibrd));
+  }
+
+  floorplan_task(floorplan_task&& o)
+  : id(o.id), i(o.i), NWS_j0(o.NWS_j0), NWS_j1(o.NWS_j1), CELLS(std::move(o.CELLS))
+  {
+    memcpy(FOOTPRINT, o.FOOTPRINT, sizeof(coor));
+    memcpy(BOARD,     o.BOARD,     sizeof(ibrd));
+  }
+
+  floorplan_task& operator=(const floorplan_task& other)
+  {
+    floorplan_task  tmp(std::move(*this));
+
+    new (this) floorplan_task (other);
+    return *this;
+  }
+
+  floorplan_task& operator=(floorplan_task&& other)
+  {
+    floorplan_task tmp(std::move(*this));
+
+    new (this) floorplan_task (other);
+    return *this;
+  }
+#endif /* MANUAL_AUTO_OPS */
+
   int      id;
-  cell_ptr CELLS;
 
   int      i;
   int      NWS_j0;
@@ -292,6 +323,7 @@ struct floorplan_task
 
   coor     FOOTPRINT;
   ibrd     BOARD;
+  cell_ptr CELLS;
 };
 
 static inline
@@ -331,12 +363,8 @@ template <class Pool>
 static
 auto compute_task(Pool& p, floorplan_task t) -> Void
 {
-  //~ #pragma omp task untied private(board, footprint,area)
-  //~ firstprivate(NWS,i,j,id,nn)
-  //~ shared(FOOTPRINT,BOARD,CELLS,MIN_AREA,MIN_FOOTPRINT,N,BEST_BOARD,nnc,bots_verbose_mode)
-
   cell*                    cells = new cell[N+1];
-  floorplan_task::cell_ptr cellptr(cells);
+  cell_ptr cellptr(cells);
   ibrd                     board;
   coor                     footprint;
 
@@ -380,15 +408,15 @@ auto compute_task(Pool& p, floorplan_task t) -> Void
         MIN_AREA.store(area, std::memory_order_relaxed);
       }
     }
-    /* if area is less than best area */
   }
   else if (area < MIN_AREA.load(std::memory_order_relaxed))
   {
+    /* if area is less than best area */
     add_cell_task(p, floorplan_task(cells[t.id].next, footprint, board, cellptr));
-    /* if area is greater than or equal to best area, prune search */
   }
   else
   {
+    /* if area is greater than or equal to best area, prune search */
     bots_debug("T  %d, %d\n", area, MIN_AREA.load(std::memory_order_relaxed));
   }
 
@@ -413,7 +441,7 @@ struct TaskHandler
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
-  floorplan_task::cell_ptr ptr(CELLS);
+  cell_ptr ptr(CELLS);
 
   uab::execute_tasks( NUMTHREADS,
                       TaskHandler(),
@@ -431,25 +459,22 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 
 struct floorplan_task
 {
-  typedef std::shared_ptr<cell> cell_ptr;
-
   enum { AREA_TASK = -1 };
 
-  floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll, int x, int nws_j0, int nws_j1)
-  : id(num), CELLS(cll), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1)
+  floorplan_task(int num, coor footprn, ibrd brd, int x, int nws_j0, int nws_j1, cell_ptr cll)
+  : id(num), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1), CELLS(cll)
   {
     memcpy(FOOTPRINT, footprn, sizeof(coor));
     memcpy(BOARD, brd, sizeof(ibrd));
   }
 
   floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll)
-  : floorplan_task(num, footprn, brd, cll, AREA_TASK, 0, 0)
+  : floorplan_task(num, footprn, brd, AREA_TASK, 0, 0, cll)
   {}
 
   floorplan_task() {}
 
   int      id;
-  cell_ptr CELLS;
 
   int      i;
   int      NWS_j0;
@@ -457,6 +482,7 @@ struct floorplan_task
 
   coor     FOOTPRINT;
   ibrd     BOARD;
+  cell_ptr CELLS;
 };
 
 static std::mutex updlock;
@@ -468,7 +494,7 @@ static
 void compute_task(floorplan_task t)
 {
   cell*                    cells = new cell[N+1];
-  floorplan_task::cell_ptr cellptr(cells);
+  cell_ptr cellptr(cells);
   ibrd                     board;
   coor                     footprint;
 
@@ -553,7 +579,7 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
   omp_set_num_threads(NUMTHREADS);
 
-  floorplan_task::cell_ptr ptr(CELLS);
+  cell_ptr ptr(CELLS);
 
   #pragma omp parallel firstprivate(id, FOOTPRINT, BOARD, ptr)
   #pragma omp single
@@ -571,25 +597,22 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 
 struct floorplan_task
 {
-  typedef std::shared_ptr<cell> cell_ptr;
-
   enum { AREA_TASK = -1 };
 
-  floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll, int x, int nws_j0, int nws_j1)
-  : id(num), CELLS(cll), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1)
+  floorplan_task(int num, coor footprn, ibrd brd, int x, int nws_j0, int nws_j1, cell_ptr cll)
+  : id(num), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1), CELLS(cll)
   {
     memcpy(FOOTPRINT, footprn, sizeof(coor));
     memcpy(BOARD, brd, sizeof(ibrd));
   }
 
   floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll)
-  : floorplan_task(num, footprn, brd, cll, AREA_TASK, 0, 0)
+  : floorplan_task(num, footprn, brd, AREA_TASK, 0, 0, cll)
   {}
 
   floorplan_task() {}
 
   int      id;
-  cell_ptr CELLS;
 
   int      i;
   int      NWS_j0;
@@ -597,6 +620,7 @@ struct floorplan_task
 
   coor     FOOTPRINT;
   ibrd     BOARD;
+  cell_ptr CELLS;
 };
 
 static std::mutex updlock;
@@ -608,7 +632,7 @@ static
 void compute_task(tbb::task_group& g, floorplan_task t)
 {
   cell*                    cells = new cell[N+1];
-  floorplan_task::cell_ptr cellptr(cells);
+  cell_ptr cellptr(cells);
   ibrd                     board;
   coor                     footprint;
 
@@ -691,7 +715,7 @@ void add_cell_task(tbb::task_group& g, floorplan_task task)
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
-  floorplan_task::cell_ptr ptr(CELLS);
+  cell_ptr                 ptr(CELLS);
   tbb::task_scheduler_init init(NUMTHREADS);
   tbb::task_group          g;
 
@@ -871,33 +895,31 @@ void init_qthreads()
 
 struct floorplan_task
 {
-  typedef std::shared_ptr<cell> cell_ptr;
-
   enum { AREA_TASK = -1 };
 
-  floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll, int x, int nws_j0, int nws_j1, qt_sinc_t* snc)
-  : id(num), CELLS(cll), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1), sinc(snc)
+  floorplan_task(int num, coor footprn, ibrd brd, int x, int nws_j0, int nws_j1, qt_sinc_t* snc, cell_ptr cll)
+  : id(num), i(x), NWS_j0(nws_j0), NWS_j1(nws_j1), sinc(snc), CELLS(cll)
   {
     memcpy(FOOTPRINT, footprn, sizeof(coor));
     memcpy(BOARD, brd, sizeof(ibrd));
   }
 
-  floorplan_task(int num, coor footprn, ibrd brd, cell_ptr cll, qt_sinc_t* snc)
-  : floorplan_task(num, footprn, brd, cll, AREA_TASK, 0, 0, snc)
+  floorplan_task(int num, coor footprn, ibrd brd, qt_sinc_t* snc, cell_ptr cll)
+  : floorplan_task(num, footprn, brd, AREA_TASK, 0, 0, snc, cll)
   {}
 
   floorplan_task() {}
 
   int        id;
-  cell_ptr   CELLS;
-
   int        i;
   int        NWS_j0;
   int        NWS_j1;
 
   coor       FOOTPRINT;
   ibrd       BOARD;
+
   qt_sinc_t* sinc;
+  cell_ptr   CELLS;
 };
 
 static std::mutex updlock;
@@ -910,7 +932,7 @@ aligned_t compute_task(void* qtsk)
 {
   floorplan_task&          t = *reinterpret_cast<floorplan_task*>(qtsk);
   cell*                    cells = new cell[N+1];
-  floorplan_task::cell_ptr cellptr(cells);
+  cell_ptr          cellptr(cells);
   ibrd                     board;
   coor                     footprint;
 
@@ -1000,7 +1022,7 @@ void add_cell_task(floorplan_task task)
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
-  floorplan_task::cell_ptr ptr(CELLS);
+  cell_ptr    ptr(CELLS);
   qt_sinc_t*               sinc   = qt_sinc_create(0, nullptr, nullptr, 0);
 
   add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, ptr, sinc));

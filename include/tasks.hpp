@@ -87,13 +87,12 @@ namespace uab
         assert(head < BLK);
         if (head >= tail) return nullptr;
 
-        res = data[head];
-        // \mo release to prevent reordering with previous read of data[head]
-        //   \todo since the data is not rewritten, relaxed might do
-        // \mo relaxed b/c nothing happened
+        // \mo relaxed (succ) since the data is never rewritten
+        // \mo relaxed (fail) b/c nothing happened
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
+          res = std::move(data[head]);
           return this;
         }
       }
@@ -126,13 +125,12 @@ namespace uab
         assert(head < BLK);
         if (head >= tail) return nullptr;
 
-        res = data[head];
-        // \mo release to prevent reordering with previous read of data[head]
-        //   \todo since the data is not rewritten, relaxed might do
-        // \mo relaxed b/c nothing happened
+        // \mo relaxed (succ) since the data is never rewritten
+        // \mo relaxed (fail) b/c nothing happened
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
+          res = std::move(data[head]);
           return this;
         }
 
