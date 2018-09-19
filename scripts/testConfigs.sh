@@ -19,7 +19,11 @@ test_make()
 
   if [[ "$expected" -eq 0 ]]; then
     echo run
+<<<<<<< Updated upstream
     mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX.bin"
+=======
+    mv "$COMPDIR"/"$selector".bin "$COMPDIR"/"$selector-$container-$allocator-$CXX"
+>>>>>>> Stashed changes
   fi
 }
 
@@ -140,6 +144,7 @@ COMPILERS="g++"
 # Intel compiler
 # COMPILERS="$COMPILERS icpc"
 
+<<<<<<< Updated upstream
 # IBM compilers
 #
 # COMPILERS="$COMPILERS xlc++"
@@ -155,6 +160,9 @@ fi
 if [[ $host == "blueblaze" ]]; then
   COMPILERS="g++ xlc++"
 fi
+=======
+COMPILERS="g++ clang++ icpc"
+>>>>>>> Stashed changes
 
 
 ###
