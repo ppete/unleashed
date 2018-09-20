@@ -970,19 +970,19 @@ aligned_t qt_compute(void* qtsk)
   std::cerr << "left = " << qthread_stackleft() << std::endl;
 
   forward_pass(&seq_array[seq1][0], &seq_array[seq2][0], task.n, task.m, &se1, &se2, &maxscore, g, gh);
-  //~ reverse_pass(&seq_array[seq1][0], &seq_array[seq2][0], se1, se2, &sb1, &sb2, maxscore, g, gh);
+  reverse_pass(&seq_array[seq1][0], &seq_array[seq2][0], se1, se2, &sb1, &sb2, maxscore, g, gh);
 
-  //~ int displ[2*MAX_ALN_LENGTH+1];
-  //~ int print_ptr  = 1;
-  //~ int last_print = 0;
+  int displ[2*MAX_ALN_LENGTH+1];
+  int print_ptr  = 1;
+  int last_print = 0;
 
-  //~ diff(sb1-1, sb2-1, se1-sb1+1, se2-sb2+1, 0, 0, &print_ptr, &last_print, displ, seq1, seq2, g, gh);
-  //~ double mm_score = tracepath(sb1, sb2, &print_ptr, displ, seq1, seq2);
+  diff(sb1-1, sb2-1, se1-sb1+1, se2-sb2+1, 0, 0, &print_ptr, &last_print, displ, seq1, seq2, g, gh);
+  double mm_score = tracepath(sb1, sb2, &print_ptr, displ, seq1, seq2);
 
-  //~ if (task.len1 == 0 || len2 == 0) mm_score  = 0.0;
-  //~ else                             mm_score /= (double) MIN(task.len1,len2);
+  if (task.len1 == 0 || len2 == 0) mm_score  = 0.0;
+  else                             mm_score /= (double) MIN(task.len1,len2);
 
-  //~ bench_output[task.si*nseqs+task.sj].store((int) mm_score, std::memory_order_relaxed);
+  bench_output[task.si*nseqs+task.sj].store((int) mm_score, std::memory_order_relaxed);
 
   qt_sinc_submit(task.sinc, nullptr);
   return aligned_t();
@@ -1474,14 +1474,14 @@ int readseqs(const char *filename)
    char *seq1, chartab[128];
 
    if ((fin = fopen(filename, "r")) == NULL) {
-      bots_message("Could not open sequence file (%s)\n", filename);
+      std::cerr << "Could not open sequence file (" << filename << ")" << std::endl;
       exit (-1);
    }
 
    if ( fscanf(fin,"Number of sequences is %d", &no_seqs) == EOF ) {
-      bots_message("Sequence file is bogus (%s)\n", filename);
+      std::cerr << "Sequence file is bogus (" << filename << ")" << std::endl;
       exit(-1);
-   };
+   }
 
    fill_chartab(chartab);
    bots_message("Sequence format is Pearson\n");

@@ -246,7 +246,7 @@ static void read_inputs() {
 static void write_outputs() {
   int i, j;
 
-    bots_message("Minimum area = %d\n\n", MIN_AREA.load());
+    std::cout << "Minimum area = " << MIN_AREA.load() << std::endl;
 
     for (i = 0; i < MIN_FOOTPRINT[0]; i++) {
       for (j = 0; j < MIN_FOOTPRINT[1]; j++) {
@@ -260,11 +260,7 @@ static void write_outputs() {
 
 #ifdef BLAZE_VERSION
 
-struct Void
-{
-  Void operator+=(Void) { return *this; }
-};
-
+typedef uab::Void Void;
 
 struct floorplan_task
 {
@@ -1136,7 +1132,7 @@ void floorplan_init (const char *filename)
     inputFile = fopen(filename, "r");
 
     if(NULL == inputFile) {
-        bots_message("Couldn't open %s file for reading\n", filename);
+        std::cerr << "Couldn't open " << filename << "file for reading" << std::endl;
         exit(1);
     }
 

@@ -119,7 +119,7 @@ endif
 ## auto set instruction set to native
 
 ifeq ($(INSTRSET),)
-	SUCCESS=$(shell $(CXX) -std=c++11 -O0 -march=native $(BLAZE_HOME)/examples/tasks/common/test-hello.cc; echo $$?)
+	SUCCESS=$(shell $(CXX) -std=c++11 -O0 -march=native $(BLAZE_HOME)/examples/tasks/common/test-hello.cc -o $(BLAZE_HOME)/examples/tasks/common/test-hello.bin; echo $$?)
 
 	ifeq ($(SUCCESS),0)
     INSTRSET= -march=native
@@ -128,7 +128,7 @@ ifeq ($(INSTRSET),)
 endif
 
 ifeq ($(INSTRSET),)
-	SUCCESS=$(shell $(CXX) -std=c++11 -O0 -mcpu=native $(BLAZE_HOME)/examples/tasks/common/test-hello.cc; echo $$?)
+	SUCCESS=$(shell $(CXX) -std=c++11 -O0 -mcpu=native $(BLAZE_HOME)/examples/tasks/common/test-hello.cc -o $(BLAZE_HOME)/examples/tasks/common/test-hello.bin; echo $$?)
 
 	ifeq ($(SUCCESS),0)
     INSTRSET= -mcpu=native

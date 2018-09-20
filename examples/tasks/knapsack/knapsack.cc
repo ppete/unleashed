@@ -122,7 +122,7 @@ int read_input(const char *filename, struct item *items, int *capacity, int *n)
      if (f == NULL)
      {
        fprintf(stderr, "open_input(\"%s\") failed\n", filename);
-       return -1;
+       exit(1);
      }
      /* format of the input: #items capacity value1 weight1 ... */
      fscanf(f, "%d", n);
@@ -160,32 +160,27 @@ struct knapsack_task
 
 #if BLAZE_VERSION
 
-struct Void
-{
-  Void operator+=(Void) { return *this; }
-};
-
 struct knapsack_par
 {
   template <class P>
-  auto operator()(P& pool, knapsack_task task) -> Void
+  auto operator()(P& pool, knapsack_task task) -> uab::Void
   {
     for (;;)
     {
       /* base case: full knapsack or no items */
-      if (task.c < 0) return Void();
+      if (task.c < 0) return uab::Void();
 
       /* feasible solution, with value v */
       if (task.n == 0 || task.c == 0)
       {
         update_best_so_far(task.v);
-        return Void();
+        return uab::Void();
       }
 
       double ub = (double) task.v + task.c * task.e->value / task.e->weight;
 
       // prune if it is worse than the best available alternative
-      if (ub < best_so_far.load(std::memory_order_relaxed)) return Void();
+      if (ub < best_so_far.load(std::memory_order_relaxed)) return uab::Void();
 
       /* compute the best solution without the current item in the knapsack */
       // #pragma omp task untied firstprivate(e,c,n,v,l) shared(without)

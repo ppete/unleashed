@@ -54,6 +54,8 @@
 
 #define PRINT_STATS 0
 
+#define CUTOFF (PROBLEM_SIZE)
+
 #if OMP_VERSION
 #include <omp.h>
 #endif
@@ -344,7 +346,10 @@ void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
       newtask.queens[task.rows] = i;
       ++newtask.rows;
 
+      if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
       cilk_spawn compute_nqueens(sum, newtask);
+      else
+        compute_nqueens(sum, newtask);
     }
 
     task.queens[task.rows] = 0;
@@ -429,10 +434,15 @@ aligned_t compute_nqueens(void* qtsk)
       newtask.queens[task.brd.rows] = i;
       ++newtask.rows;
 
+      if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
       qthread_fork( compute_nqueens<N>,
                     new qtask<N>{ newtask, task.sinc},
                     nullptr
                   );
+      else
+      {
+        compute_nqueens<N>(new qtask<N>{ newtask, task.sinc});
+      }
     }
 
     task.brd.queens[task.brd.rows] = 0;
@@ -491,10 +501,10 @@ struct compute_nqueens
         newtask.queens[task.rows] = i;
         ++newtask.rows;
 
-        // if (newtask.rows < PROBLEM_SIZE/2)
+        if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
           pool.enq(newtask);
-        //else
-          // res += (*this)(pool, newtask);
+        else
+          res += (*this)(pool, newtask);
       }
 
       task.queens[task.rows] = 0;

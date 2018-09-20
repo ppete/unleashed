@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <thread>
+#include <cassert>
 
 // for setting and getting binding
 #include <sched.h>
@@ -19,53 +20,136 @@ typedef uab::generic_arch         arch_model;
 
 namespace uab
 {
+  /// \brief void reduction defaults to empty operators
+  /// \details
+  ///    use:
+  ///    \code
+  ///    template <class Pool>
+  ///    Void reductionOp(Pool taskpool, Task t)
+  ///    {
+  ///      return Void();
+  ///    }
+  ///    \endcode
+  struct Void
+  {
+    Void operator+=(Void) { return *this; }
+  };
+
+  //
+  // Task pool implementation
+
+  /// constant for block-size used in task pool
   static const size_t BLKSZ                = 1024;
 
+  /// \brief Data block in a FIFO queue implemented as list of blocks.
+  ///        dataQ supports a single producer, multiple consumers
+  ///        tail->block<-block<-block<-head
+  ///
+  /// \details A data block holds BLKSZ elements at a time.
+  ///          The data block is NOT cyclic, hence we get away with
+  ///          relaxed memory operations. It is the task of the memory
+  ///          management to guarantee that the deq operation completes
+  ///          before the block can be recycled.
+  /// \tparam T the task being stored
   template <class T>
   struct dataQ
   {
+    /// type for head and tail position within block
     typedef uab::aligned_atomic_type<size_t, CACHELINESZ>    counter_t;
+
+    /// pointer to next data block
     typedef uab::aligned_atomic_type<dataQ<T>*, CACHELINESZ> next_t;
+
+    /// task type
     typedef T                                                value_t;
 
-    static const size_t BLK = BLKSZ;
+    static const size_t BLK = BLKSZ; ///< number of elements in a block
 
-    counter_t  hd;
-    counter_t  tl;
-    next_t     next;
-    size_t     dummy;
-    value_t    data[BLK];
+    counter_t  hd;         ///< block internal head
+    counter_t  tl;         ///< block internal tail
+    next_t     next;       ///< next block
 
+    /// elements in the block
+    /// \note in order to avoid interference from ctor and dtor calls
+    ///       by classes with non-trivial constructor and deconstructor, the
+    ///       block manages construction and deconstruction of its task objects.
+    ///       Thus, it just reserves storage for BLK elements, and calls ctor
+    ///       and dtor upon enqueue and dequeue (move based when possible).
+    char       data[BLK*sizeof(value_t)];
+
+    /// constructs data block with 0 elements
     dataQ()
     : hd(0), tl(0), next(nullptr)
     {}
 
+    /// constructs a data block with 1 element
+    /// \param el the first task
     explicit
-    dataQ(T el)
+    dataQ(value_t&& el)
     : hd(0), tl(1), next(nullptr)
     {
-      data[0] = el;
+      new (at(0)) value_t (el);
     }
 
+    /// constructs a data block with 1 element
+    /// \param el the first task
+    explicit
+    dataQ(const value_t& el)
+    : hd(0), tl(1), next(nullptr)
+    {
+      new (at(0)) value_t (el);
+    }
+
+    /// computes the address of element idx
+    value_t* at(size_t idx)
+    {
+      char* res = data + idx*sizeof(T);
+
+      assert(res >= data && res <= data + (BLKSZ-1)*sizeof(T));
+      return reinterpret_cast<value_t*>(res);
+    }
+
+    /// tests if the data block can store more tasks
     bool has_space()
     {
       // \mo relaxed, b/c tl is only modified by this thread
       return tl.val.load(std::memory_order_relaxed) < BLK;
     }
 
-    void enq(const T& el)
+    /// copy-enqueues a new element in this block
+    /// \pre hasSpace() == true
+    /// \pre only executed by the queue owner
+    void enq(const value_t& el)
     {
       // \mo relaxed, b/c tl is only modified by this thread
       const size_t tail = tl.val.load(std::memory_order_relaxed);
 
       assert(tail < BLK);
-      data[tail] = el;
+      new (at(tail)) value_t (el); // in-place constructions
 
       // \mo release b/c data[tail] is published
       tl.val.store(tail+1, std::memory_order_release);
     }
 
-    dataQ<T>* deq(T& res)
+    /// move-enqueues a new element in this block
+    /// \pre hasSpace() == true
+    /// \pre only executed by the queue owner
+    void enq(value_t&& el)
+    {
+      // \mo relaxed, b/c tl is only modified by this thread
+      const size_t tail = tl.val.load(std::memory_order_relaxed);
+
+      assert(tail < BLK);
+      new (at(tail)) value_t (el); // in-place constructions
+
+      // \mo release b/c data[tail] is published
+      tl.val.store(tail+1, std::memory_order_release);
+    }
+
+    /// dequeues a task and moves it into res
+    /// \result the block from where the element was dequeued;
+    ///         nullptr if unsuccessful.
+    dataQ<T>* deq(value_t& res)
     {
       // \mo relaxed, b/c hd does not publish anything
       size_t head = hd.val.load(std::memory_order_relaxed);
@@ -92,14 +176,30 @@ namespace uab
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
-          res = std::move(data[head]);
+          value_t* obj = at(head);
+
+          // mv and deconstruct obj
+          res = std::move(*obj);
+          obj->~value_t();
           return this;
         }
       }
     }
 
+    /// steals  a task and moves it into res
+    /// \param  res the place where the task will be stored
+    /// \param  tries number of attempts. Used to manage lock-free contention
+    ///         by giving up after tries unsuccessful attempts to steal a task.
+    /// \param  alloc the memory manager in use; needed to secure the next block
+    ///         if traversal is needed.
+    /// \result the block from where the element was dequeued;
+    ///         nullptr if unsuccessful.
+    /// \pre    this is pinned, if a finegrain (i.e., publishAndScan) is used
+    /// \post   this is unpinned
+    /// \note   publishAndScan is supported, though finegrain memory management
+    ///         does not bring anything to the table for this task implementation.
     template <class Alloc>
-    dataQ<T>* deq_steal(T& res, size_t tries, Alloc alloc)
+    dataQ<T>* deq_steal(value_t& res, size_t tries, Alloc alloc)
     {
       size_t attempts = tries;
 
@@ -108,6 +208,7 @@ namespace uab
       // \mo acquire, b/c we read from data[i], where i < tl
       size_t tail = tl.val.load(std::memory_order_acquire);
 
+      // give up under high contention
       while (attempts > 0)
       {
         if (head == BLK)
@@ -130,7 +231,10 @@ namespace uab
         if (hd.val.compare_exchange_strong(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
         {
           assert(head+1 <= tail);
-          res = std::move(data[head]);
+          value_t* obj = at(head);
+
+          res = std::move(*obj);
+          obj->~value_t();
           return this;
         }
 
@@ -142,38 +246,66 @@ namespace uab
   };
 
 
+  /// Main FIFO queue, built upon dataQ blocks + status data for threads
+  /// \tparam T task type
+  /// \tparam Alloc the memory manager as defined in pmemory.hpp
+  /// \details
+  ///    Each thread has its own flatQ object. The flatQ object also holds
+  ///    some status information for its owning thread.
   template <class T, class Alloc>
   struct flatQ
   {
+    /// Memory manager type
     typedef Alloc                                                        allocator_type;
     typedef std::allocator_traits<Alloc>                                 orig_alloc_traits;
     typedef typename orig_alloc_traits::template rebind_alloc<dataQ<T> > node_alloc_type;
 
+    /// Number of concurrently pinned blocks (this and next)
     static const size_t                              SZPINWALL = 2;
 
+    /// The allocator/memory manager
     node_alloc_type                                  nodealloc;
+
+    /// keeps track of current
     bool                                             active;
+
+    /// number of tasks stolen from this thread
     size_t                                           stolen;
+
+    /// number of tasks enqueued by this thread
     size_t                                           tasks_made;
+
+    /// number of completed tasks (incl. tasks solved by other threads, but
+    ///   not tasks that this thread stole).
     size_t                                           tasks_done;
+
+    /// tail (enqueue-side) of the queue; only accessed by owner
     dataQ<T>*                                        tail; // only accessed from queue owner
 
+    /// head (dequeue-side) of the queue; concurrently accessed by work stealers.
     uab::aligned_atomic_type<dataQ<T>*, CACHELINESZ> head;
+
+    /// estimate of available tasks
     uab::aligned_atomic_type<size_t, CACHELINESZ>    numtasks;
+
+    /// number of stolen and completed tasks; updated by the work stealers.
     uab::aligned_atomic_type<size_t, CACHELINESZ>    steals;
 
+    /// default ctor initializes an empty Q
     explicit
     flatQ(allocator_type alloc = allocator_type())
     : nodealloc(alloc), active(true), stolen(0), tasks_made(0), tasks_done(0),
       tail(new dataQ<T>()), head(tail), numtasks(0), steals(0)
     {}
 
+    /// retrieve allocator
     node_alloc_type get_allocator()
     {
       return nodealloc;
     }
 
-    dataQ<T>* new_tile(T el)
+    /// allocates a new dataQ block
+    dataQ<T>* new_block(T el)
     {
       node_alloc_type alloc = get_allocator();
       dataQ<T>*       tmp = alloc.allocate(1);
@@ -182,6 +314,7 @@ namespace uab
       return tmp;
     }
 
+    /// copy-enqueues a new element
     void enq(const T& el)
     {
       ++tasks_made;
@@ -192,20 +325,43 @@ namespace uab
         return;
       }
 
-      dataQ<T>* tmp = new_tile(el);
+      dataQ<T>* tmp = new_block(el);
 
       numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
 
-      // \mo release, b/c new_tile was initialized
+      // \mo release, b/c new_block was initialized
       tail->next.val.store(tmp, std::memory_order_release);
       tail = tmp;
     }
 
+    /// move-enqueues a new element
+    void enq(T&& el)
+    {
+      ++tasks_made;
+
+      if (tail->has_space())
+      {
+        tail->enq(el);
+        return;
+      }
+
+      dataQ<T>* tmp = new_block(el);
+
+      numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
+
+      // \mo release, b/c new_block was initialized
+      tail->next.val.store(tmp, std::memory_order_release);
+      tail = tmp;
+    }
+
+    /// records finished task
     void task_completed()
     {
       ++tasks_done;
     }
 
+    /// tests if task became inactive (all tasks it produced (potentially stolen)
+    ///   have been completed.
     bool became_inactive()
     {
       if (!active) return false;
@@ -223,6 +379,9 @@ namespace uab
       return true;
     }
 
+    /// dequeues an element and stores result into res
+    /// \param  res  where the result will be stored
+    /// \result true if successful, false otherwise
     bool deq(T& res)
     {
       typedef typename node_alloc_type::pinguard PinGuard;
@@ -231,10 +390,13 @@ namespace uab
       dataQ<T>*               curr = head.val.load(std::memory_order_relaxed);
       assert(curr);
 
+      // attempt to dequeue from own queue
       dataQ<T>* actl = curr->deq(res);
 
+      // unsuccessful?
       if (actl == nullptr) return false;
 
+      // all blocks that have become empty can be freed
       if (curr != actl)
       {
         node_alloc_type alloc = get_allocator();
@@ -248,14 +410,20 @@ namespace uab
           alloc.deallocate(tmp, 1);
         } while (curr != actl);
 
-        // \mo release to make content of new head available
+        // \mo release to make content of new head available (needed?)
         head.val.store(actl, std::memory_order_release);
+
+        // update available task counter
         numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
       }
 
       return true;
     }
 
+    /// attempts to steal a task from some other thread's queue
+    /// \param  res   where the result will be stored
+    /// \param  tries number of attempts before yielding to contention
+    /// \result true if successful, false otherwise
     bool deq_steal(T& res, size_t tries)
     {
       typedef typename node_alloc_type::pinguard PinGuard;
@@ -270,6 +438,9 @@ namespace uab
       return curr->deq_steal(res, tries, alloc) != nullptr;
     }
 
+    /// quiescent release of memory
+    /// \details
+    ///    DO NOT CALL when concurrent operations are ongoing!
     void qrelease_memory()
     {
       get_allocator().qrelease_memory();
@@ -277,6 +448,9 @@ namespace uab
   };
 
 
+  /// The task pool class
+  /// \tparam T task type
+  /// \tparam _Alloc the memory manager (see pmemory.hpp)
   template <class T, class _Alloc = lockfree::epoch_manager<T, std::allocator>>
   struct pool
   {
@@ -287,18 +461,34 @@ namespace uab
     typedef std::allocator_traits<_Alloc>                           orig_alloc_traits;
     typedef typename orig_alloc_traits::template rebind_alloc<tasq> node_alloc_type;
 
+    /// maximum number of threads
     const size_t                                  MAXTQ;
 
+    /// the allocator/memory manager
     node_alloc_type                               nodealloc;
 
+    /// counts active threads; when count reaches 0 all task have been handled
     uab::aligned_atomic_type<size_t, CACHELINESZ> active;
+
+    /// task specific queue handles
     uab::aligned_atomic_type<tasq*, CACHELINESZ>  taskq[256]; // \todo remove magic constant
 
+    /// thread id within pool
     static thread_local size_t                    idx;
+
+    /// victim (thread id) where the last task has been stolen
     static thread_local size_t                    last_victim;
+
+    /// this task queue
     static thread_local tasq*                     tq_loc;
+
+    /// last victim's task queue
     static thread_local tasq*                     tq_rem;
 
+    /// initializes pool and enqueues first task
+    /// \param numthreads number of worker threads (and task queues)
+    /// \param work       first task
+    /// \param alloc      memory manager
     explicit
     pool(size_t numthreads, T work, const allocator_type& alloc = allocator_type())
     : MAXTQ(numthreads), nodealloc(alloc), active(numthreads)
@@ -312,7 +502,7 @@ namespace uab
       last_victim = 0;
       taskq[0].val.store(tq_loc, std::memory_order_relaxed);
 
-      enq(work);
+      enq(std::move(work));
 
       // set tasqs to null
       for (size_t i = 1; i < MAXTQ; ++i)
@@ -322,6 +512,10 @@ namespace uab
       }
     }
 
+    /// initializes thread local storage of task pool
+    /// \param parent pool id of parent thread
+    /// \param self   pool id of this thread
+    /// \note pool ids are generated by the task system
     void init(size_t parent, size_t self)
     {
       if (self == 0) return;
@@ -333,11 +527,19 @@ namespace uab
       taskq[self].val.store(tq_loc, std::memory_order_release);
     }
 
-    void enq(T el)
+    /// copy-enqueues a new task
+    void enq(const T& el)
     {
       tq_loc->enq(el);
     }
 
+    /// move-enqueues a new task
+    void enq(T&& el)
+    {
+      tq_loc->enq(el);
+    }
+
+    /// called before a new task is scheduled
     void work_started()
     {
       if (!tq_loc->active)
@@ -347,18 +549,25 @@ namespace uab
       }
     }
 
+    /// called after a task has been completed
     void work_completed()
     {
+      // was the task stolen?
       if (tq_rem == nullptr)
       {
+        // no, just increment local work counter
         tq_loc->task_completed();
         return;
       }
 
+      // yes, notify victim thread that its task has completed
       tq_rem->steals.val.fetch_add(1, std::memory_order_relaxed);
       tq_rem = nullptr;
     }
 
+    /// checks whether all created tasks have completed
+    /// \details
+    ///    updates the pool's active counter if needed
     void check_active()
     {
       if (tq_loc->became_inactive())
@@ -367,31 +576,48 @@ namespace uab
       }
     }
 
+    /// checks if there is at least one active thread remaining
     bool has_work()
     {
       return active.val.load(std::memory_order_relaxed) > 0;
     }
 
+    /// dequeues a task and stores the result in res
+
+    /// dequeues a task and moves it into res
+    /// \result  true if a task was dequeued, false otherwise
     bool deq(T& res)
     {
+      // used to estimate number of stealing attempts
       static const size_t SAMPLESIZE = 4;
 
+      // try to dequeue from the local queue first
       bool succ = tq_loc->deq(res);
 
       if (succ) return succ;
 
-      // estimate average number of tasks by using rolling average
-      size_t             tasks_avail[SAMPLESIZE];
+      // no more tasks in the local queue
+      //   -> steal a task from somewhere else
+
+      // estimate average number of tasks from a sample
+      //   and choose first victim from the sample with the most tasks.
+
       size_t             tasks_sum = 0;
-      size_t             thrid     = last_victim;
+      size_t             tasks_avail[SAMPLESIZE];
 
       {
-        size_t           tasks_i = 0;
-        size_t           tid     = thrid;
+        size_t           tasks_i = SAMPLESIZE;
         size_t           max     = 0;
+        //~ const size_t     ofs     = std::max(MAXTQ/4,size_t(1));
+        size_t           tid     = (idx == MAXTQ? 0: idx+1);
+        size_t           probe[SAMPLESIZE] = { last_victim, last_victim+idx+1, idx+1, idx+2 };
 
-        while (tasks_i < SAMPLESIZE)
+        while (tasks_i)
         {
+          --tasks_i;
+          tid = probe[tasks_i];
+          while (tid >= MAXTQ) { tid -= MAXTQ; }
+
           tasq*          victim = taskq[tid].val.load(std::memory_order_consume);
 
           if (victim)
@@ -402,20 +628,18 @@ namespace uab
             if (tasks_avail[tasks_i] > max)
             {
               max = tasks_avail[tasks_i];
-              last_victim = thrid = tid;
+              last_victim = tid;
             }
           }
 
-          ++tasks_i;
-          tid += 3;
-          while (tid >= MAXTQ) { tid -= MAXTQ; }
+          // tid += ofs;
         }
       }
-
 
       {
         // work stealing
         size_t             tasks_i = 0;
+        size_t             thrid   = last_victim;
 
         do
         {
@@ -429,14 +653,12 @@ namespace uab
 
             if (avail * (SAMPLESIZE/2) > tasks_sum)
             {
-              tries += 4;
-
-              tries = std::min(tries, size_t(8));
+              tries = std::min(tries+4, size_t(8));
             }
             else if (avail * (SAMPLESIZE*4) < tasks_sum)
             {
               // tries -=2;
-              tries = 0;
+              tries = 1;
             }
 
             tasks_sum -= tasks_avail[tasks_i];
@@ -464,6 +686,7 @@ namespace uab
       return succ;
     }
 
+    /// releases all thread local memory
     void qrelease_memory()
     {
       tq_loc->qrelease_memory();
@@ -636,6 +859,28 @@ namespace uab
   }
 */
 
+  /// spawns numthread threads and calls fun(task)
+  /// \tparam F type of functor
+  /// \tparam T task type
+  /// \param numthreads max number of threads to solve task
+  /// \param fun functor that accepts a pool and a task
+  /// \param task first task
+  /// \details
+  ///   example:
+  /// \code
+  ///    struct fib {
+  ///      template <class Pool>
+  ///      int operator(Pool& p, int task) {
+  ///        while (task > 1) {
+  ///          p.enq(task-2);
+  ///          --task;
+  ///        }
+  ///        return task;
+  ///      }
+  ///    };
+  ///
+  ///    int res = execute_tasks(20, fib(), 10);
+  /// \endcode
   template <class F, class T>
   auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T>(0,task), task))
   {
@@ -661,6 +906,19 @@ namespace uab
     return res;
   }
 
+  /// spawns numthread threads and calls fun(task)
+  /// \tparam A allocator/memory manager
+  /// \tparam F type of functor
+  /// \tparam T task type
+  /// \param numthreads max number of threads to solve task
+  /// \param fun functor that accepts a pool and a task
+  /// \param task first task
+  /// \details
+  ///   example uses the gc_manager to handle deallocations by the
+  ///   internal task pool.
+  /// \code
+  ///    int res = execute_tasks<gc_manager>(20, fib(), 10);
+  /// \endcode
   template <class A, class F, class T>
   auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T,A>(0,task), task))
   {
@@ -685,14 +943,41 @@ namespace uab
     return res;
   }
 
+#if 0
   /// auxiliary class for non-blaze task systems
   template <class T>
   struct reducer
   {
+    std::atomic<size_t>                 ctr;
     uab::aligned_type<T, CACHELINESZ>   myres[256];
 
-    static std::atomic<int>             ctr;
-    static thread_local size_t          val;
+    static thread_local int             id;
+
+    explicit
+    reducer(size_t numthreads)
+    : ctr(0)
+    {
+      for (size_t i = 0; i < numthreads; ++i)
+        myres[i].val = T();
+    }
+
+    void operator()(const T& elem)
+    {
+      if (id < 0)
+      {
+        id = ctr.fetch_add(1, std::memory_order_relaxed);
+      }
+
+      myres[val] += elem;
+    }
+
+    T get_value()
+    {
+      T res = T();
+
+      for (size_t i = 0; i < numthreads; ++i)
+        res += myres[i].val;
+    }
   };
 
   template <class T>
@@ -700,8 +985,8 @@ namespace uab
 
   template <class T>
   thread_local
-  size_t reducer<T>::val(ctr.fetch_add(1, std::memory_order_relaxed));
-
+  int reducer<T>::id(-1);
+#endif /* 0 */
 } // end namespace uab
 
 #endif /* _TASKS_HPP */
