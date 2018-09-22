@@ -86,9 +86,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 
@@ -446,21 +446,6 @@ struct qtask
 };
 
 
-void init_qthreads()
-{
-  std::stringstream str;
-
-  str << "QTHREAD_HWPAR=" << NUMTHREADS;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  qthread_initialize();
-}
-
-
 aligned_t knapsack_par(void* qtsk)
 {
   qtask& task = * reinterpret_cast<qtask*>(qtsk);
@@ -607,7 +592,7 @@ int main(int argc, char** argv)
   read_input(inputfile.c_str(), items, &capacity, &n);
 
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS);
 #endif /* QTHREADS_VERSION */
 
   time_point starttime = std::chrono::system_clock::now();

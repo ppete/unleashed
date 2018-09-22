@@ -92,9 +92,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 #include "atomicutil.hpp"
@@ -452,20 +452,6 @@ struct qtask
   qt_sinc_t*       sinc;
 };
 
-void init_qthreads()
-{
-  std::stringstream str;
-
-  str << "QTHREAD_HWPAR=" << NUMTHREADS;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  qthread_initialize();
-}
-
 template <class F, class D>
 aligned_t qthreads_integrate(void* qtsk)
 {
@@ -587,7 +573,7 @@ int main()
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();

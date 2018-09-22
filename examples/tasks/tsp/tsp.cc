@@ -85,9 +85,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 #include "atomicutil.hpp"
@@ -737,21 +737,6 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 
 #if QTHREADS_VERSION
 
-void init_qthreads()
-{
-  std::stringstream str;
-
-  str << "QTHREAD_HWPAR=" << NUMTHREADS;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  qthread_initialize();
-}
-
-
 struct qtask
 {
   typedef tsp_task::branch_ptr branch_ptr;
@@ -845,7 +830,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 int main()
 {
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS);
 #endif /* QTHREADS_VERSION */
 
   //input graph

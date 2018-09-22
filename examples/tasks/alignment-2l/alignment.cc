@@ -85,9 +85,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 
@@ -894,29 +894,6 @@ int pairalign()
 
 #if QTHREADS_VERSION
 
-template <class V>
-void setenv(std::string name, V val)
-{
-  std::stringstream str;
-
-  str << name << "=" << val;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  delete[] envset;
-}
-
-void init_qthreads()
-{
-  setenv("QTHREAD_HWPAR", NUMTHREADS);
-  setenv("QTHREAD_STACK_SIZE", 40000); // does this have any impact?
-
-  qthread_initialize();
-}
-
 struct qt_compute_task
 {
   int        m;
@@ -1528,7 +1505,7 @@ int main(int argc, char** argv)
   align_init();
 
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS, 40000);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();

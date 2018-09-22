@@ -2,6 +2,10 @@
  * A simple task based implementation to compute fibonacci numbers
  *
  * Implementer: Peter Pirkelbauer (UAB) - 2018
+ *
+ * Implementer: The code under QTHREADS_ORIGINAL was taken from the qthreads
+ *    distribution. Qthreads are also distributed under the same BSD licens.
+ *    Copyrights to that portion of code are retained by the U.S. government.
  */
 
 /**
@@ -18,7 +22,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  * this list of conditions and the following disclaimer in the documentation and/or
  * other materials provided with the distribution.
- * 3. Neither the name of the copyright holder nor the names of its contributors
+ * 3. Neither the name of the copyright holders nor the names of its contributors
  * may be used to endorse or promote products derived from this software without
  * specific prior written permission.
  *
@@ -85,10 +89,16 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
+
+#if QTHREADS_VERSION_ORIGINAL
+#include <qthread/qthread.hpp>
+#include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
+#endif /* QTHREADS_VERSION_ORIGINAL */
 
 #include "atomicutil.hpp"
 
@@ -341,26 +351,14 @@ std::pair<I, size_t> fib_task(I num)
 
 #if QTHREADS_VERSION
 
+// QThreads, nowait version
+
 template <class I>
 struct qtask
 {
   I          num;
   qt_sinc_t* sinc;
 };
-
-void init_qthreads()
-{
-  std::stringstream str;
-
-  str << "QTHREAD_HWPAR=" << NUMTHREADS;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  qthread_initialize();
-}
 
 
 template <class I>
@@ -406,14 +404,60 @@ std::pair<I, size_t> fib_task(I num)
 
 #endif /* QTHREADS_VERSION */
 
+#if QTHREADS_VERSION_ORIGINAL
 
+/***
+* THIS SOFTWARE IS PROVIDED BY SANDIA CORPORATION ``AS IS'' AND ANY EXPRESS OR
+* IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+* EVENT SHALL SANDIA CORPORATION BE LIABLE FOR ANY DIRECT, INDIRECT,
+* INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+* LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+* OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+* LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+* NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+* EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+***/
+
+template <class I>
+aligned_t fib(void *arg_)
+{
+    I n = *(I*)arg_;
+
+    if (n < 2) return n;
+
+    aligned_t ret1 = 0;
+    aligned_t ret2 = 0;
+    unsigned int n1 = n - 1;
+    unsigned int n2 = n - 2;
+
+    qthread_fork(fib<I>, &n1, &ret1);
+    qthread_fork(fib<I>, &n2, &ret2);
+
+    qthread_readFF(NULL, &ret1);
+    qthread_readFF(NULL, &ret2);
+
+    return ret1 + ret2;
+}
+
+/*** end SANDIA */
+
+template <class I>
+std::pair<I, size_t> fib_task(I num)
+{
+  aligned_t result = fib<I>(&num);
+
+  return std::make_pair(result, 0);
+}
+
+#endif /* QTHREADS_VERSION_ORIGINAL */
 
 int main()
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS);
 #endif
 
   time_point     starttime = std::chrono::system_clock::now();

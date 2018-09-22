@@ -77,9 +77,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 #define ROWS 64
@@ -881,14 +881,6 @@ void setenv(std::string name, V val)
   delete[] envset;
 }
 
-void init_qthreads()
-{
-  setenv("QTHREAD_HWPAR", NUMTHREADS);
-  setenv("QTHREAD_STACK_SIZE", 20000); // does this have any impact?
-
-  qthread_initialize();
-}
-
 struct floorplan_task
 {
   enum { AREA_TASK = -1 };
@@ -1185,7 +1177,7 @@ int main(int argc, char** argv)
   floorplan_init(inputfile.c_str());
 
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS, 20000);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();

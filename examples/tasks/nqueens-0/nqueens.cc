@@ -87,9 +87,9 @@
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
-#include <sstream>
 #include <qthread/qthread.hpp>
 #include <qthread/sinc.h>
+#include "../common/qthreads.hpp"
 #endif /* QTHREADS_VERSION */
 
 #include "atomicutil.hpp"
@@ -223,7 +223,7 @@ void compute_nqueens(board<N> task, uab::aligned_type<result_t, CACHELINESZ>* s)
       newtask.queens[task.rows] = i;
       ++newtask.rows;
 
-      #pragma omp task
+      #pragma omp task if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
       compute_nqueens(newtask, s);
     }
 
@@ -287,10 +287,13 @@ size_t compute_nqueens(G& taskgroup, board<N> task)
       newtask.queens[task.rows] = i;
       ++newtask.rows;
 
+      if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
       taskgroup.run( [&taskgroup, newtask]()->void
                    { compute_nqueens(taskgroup, newtask);
                    }
                  );
+      else
+        compute_nqueens(taskgroup, newtask);
     }
 
     task.queens[task.rows] = 0;
@@ -380,21 +383,6 @@ struct qtask
   board<N>    brd;
   qt_sinc_t*  sinc;
 };
-
-
-void init_qthreads()
-{
-  std::stringstream str;
-
-  str << "QTHREAD_HWPAR=" << NUMTHREADS;
-
-  char* envset = new char[str.str().size()+1];
-
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
-  putenv(envset);
-
-  qthread_initialize();
-}
 
 
 template <size_t N>
@@ -566,7 +554,7 @@ size_t nqueens_seq()
 int main()
 {
 #if QTHREADS_VERSION
-  init_qthreads();
+  init_qthreads(NUMTHREADS);
 #endif /* QTHREADS_VERSION */
 
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
