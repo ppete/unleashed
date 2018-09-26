@@ -17,7 +17,7 @@ void qthr_setenv(std::string name, V val)
   memcpy(envset, str.str().c_str(), str.str().size()+1);
   putenv(envset);
 
-  delete[] envset;
+  // delete[] envset;
 }
 
 static inline
@@ -25,14 +25,16 @@ void init_qthreads(size_t numthreads, size_t stacklen = 0)
 {
   assert(numthreads);
 
-  size_t num_shepherds = (numthreads+4) / 5;
+  size_t num_shepherds = (numthreads+1) / 2;
 
+  qthr_setenv("QTHREAD_INFO", 2); // print config output
   qthr_setenv("QTHREAD_HWPAR", numthreads);
+  qthr_setenv("QTHREAD_NUM_SHEPHERDS", num_shepherds);
 
   if (stacklen) qthr_setenv("QTHREAD_STACK_SIZE", stacklen);
 
-  // qthread_initialize();
-  qthread_init(num_shepherds);
+  qthread_initialize();
+  // qthread_init(num_shepherds);
 }
 
 #endif /* COMMON_QTHREADS_HPP */

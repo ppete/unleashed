@@ -3,7 +3,7 @@ BOTS_ORIGINAL=1
 
 # problems with a task's max stack size
 #   see also alignment
-QTHREADS_ENABLED=0
+#~ QTHREADS_ENABLED=0
 
 # source files
 SOURCES=floorplan.cc

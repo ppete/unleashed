@@ -172,7 +172,7 @@ default: $(TARGETS)
 
 #~ CXXFLAGS = -std=c++11 -ggdb -pg -Wall -Wextra -pedantic -O2 $(INSTRSET) $(EXTRAFLAGS)
 
-#~ CXXFLAGS = -std=c++11 -ggdb -Wall -Wextra -pedantic -O0 $(INSTRSET) $(EXTRAFLAGS)
+#~ CXXFLAGS = -std=c++11 -ggdb -Wall -Wextra -pedantic -Og $(INSTRSET) $(EXTRAFLAGS)
 
 CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -O2 $(INSTRSET) -DNDEBUG=1 $(EXTRAFLAGS)
 

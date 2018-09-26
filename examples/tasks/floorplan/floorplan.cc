@@ -970,7 +970,7 @@ aligned_t compute_task(void* qtsk)
   }
   else if (area < MIN_AREA.load(std::memory_order_relaxed))
   {
-    add_cell_task(floorplan_task(cells[t.id].next, footprint, board, cellptr, t.sinc));
+    add_cell_task(floorplan_task(cells[t.id].next, footprint, board, t.sinc, cellptr));
     /* if area is greater than or equal to best area, prune search */
   }
   else
@@ -1013,7 +1013,7 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
   cell_ptr    ptr(CELLS);
   qt_sinc_t*               sinc   = qt_sinc_create(0, nullptr, nullptr, 0);
 
-  add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, ptr, sinc));
+  add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, sinc, ptr));
   qt_sinc_wait(sinc, nullptr);
 }
 

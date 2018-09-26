@@ -45,6 +45,8 @@
 
 #define MAX_ITEMS 256
 
+#define CUTOFF (0)
+
 #ifndef NUMTHREADS
 #define NUMTHREADS (20)
 #endif /* NUMTHREADS */
@@ -101,6 +103,7 @@ struct item
 std::atomic<int> best_so_far; //< new best so far
 
 int bots_best_so_far;         //< original best so far -- only for BOTS code
+int total_num_elems;
 
 int compare(struct item *a, struct item *b)
 {
@@ -183,8 +186,10 @@ struct knapsack_par
       if (ub < best_so_far.load(std::memory_order_relaxed)) return uab::Void();
 
       /* compute the best solution without the current item in the knapsack */
-      // #pragma omp task untied firstprivate(e,c,n,v,l) shared(without)
+      if ((!CUTOFF) || (task.n > CUTOFF))
       pool.enq(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+      else
+        (*this)(pool, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
       /* compute the best solution with the current item in the knapsack */
       // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
@@ -237,8 +242,10 @@ auto knapsack_par(knapsack_task task) -> void
     if (ub < best_so_far.load(std::memory_order_relaxed)) return;
 
     /* compute the best solution without the current item in the knapsack */
-    // #pragma omp task untied firstprivate(e,c,n,v,l) shared(without)
+    if ((!CUTOFF) || (task.n > CUTOFF))
     cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+    else
+      knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
     /* compute the best solution with the current item in the knapsack */
     // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
@@ -278,7 +285,7 @@ auto knapsack_par(knapsack_task task) -> void
     if (ub < best_so_far.load(std::memory_order_relaxed)) return;
 
     /* compute the best solution without the current item in the knapsack */
-    #pragma omp task untied firstprivate(task)
+    #pragma omp task untied firstprivate(task) if ((!CUTOFF) || (task.n > CUTOFF))
     knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
     /* compute the best solution with the current item in the knapsack */
@@ -339,11 +346,11 @@ void knapsack_par(struct item *e, int c, int n, int v, int *sol, int l)
      }
 
      /* compute the best solution without the current item in the knapsack */
-     #pragma omp task untied firstprivate(e,c,n,v,l) shared(without)
+     #pragma omp task untied firstprivate(e,c,n,v,l) shared(without) if ((!CUTOFF) || (n > CUTOFF))
      knapsack_par(e + 1, c, n - 1, v, &without, l+1);
 
      /* compute the best solution with the current item in the knapsack */
-     #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
+     #pragma omp task untied firstprivate(e,c,n,v,l) shared(with) if ((!CUTOFF) || (n > CUTOFF))
      knapsack_par(e + 1, c - e->weight, n - 1, v + e->value, &with, l+1);
 
      #pragma omp taskwait
@@ -406,12 +413,16 @@ auto knapsack_par(G& taskgroup, knapsack_task task) -> void
     if (ub < best_so_far.load(std::memory_order_relaxed)) return;
 
     /* compute the best solution without the current item in the knapsack */
-    // #pragma omp task untied firstprivate(e,c,n,v,l) shared(without)
+    if ((!CUTOFF) || (task.n > CUTOFF))
     taskgroup.run( [&taskgroup, task]() -> void
                    {
-                     knapsack_par(taskgroup, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+                       knapsack_par( taskgroup,
+                                     knapsack_task{ task.e + 1, task.c, task.n - 1, task.v }
+                                   );
                    }
                  );
+    else
+      knapsack_par(taskgroup, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
     /* compute the best solution with the current item in the knapsack */
     // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
@@ -481,10 +492,14 @@ aligned_t knapsack_par(void* qtsk)
 
     /* compute the best solution without the current item in the knapsack */
     qt_sinc_expect(task.sinc, 1);
+
+    if ((!CUTOFF) || (task.n > CUTOFF))
     qthread_fork( knapsack_par,
                   new qtask{ task.e + 1, task.c, task.n - 1, task.v, task.sinc },
                   nullptr
                 );
+    else
+      knapsack_par(new qtask{ task.e + 1, task.c, task.n - 1, task.v, task.sinc });
 
     /* compute the best solution with the current item in the knapsack */
     task = qtask{ task.e + 1,
@@ -590,6 +605,7 @@ int main(int argc, char** argv)
 
   std::cout << "loading " << inputfile << std::endl;
   read_input(inputfile.c_str(), items, &capacity, &n);
+  total_num_elems = n;
 
 #if QTHREADS_VERSION
   init_qthreads(NUMTHREADS);
