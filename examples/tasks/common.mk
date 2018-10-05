@@ -176,7 +176,7 @@ default: $(TARGETS)
 
 CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -O2 $(INSTRSET) -DNDEBUG=1 $(EXTRAFLAGS)
 
-$(OUTPUTDIR)/$(CODE)-blaze-$(COMP)$(BLZSUFFIX).bin: $(SOURCES)
+$(OUTPUTDIR)/$(CODE)-blaze-$(COMP)$(BLZSUFFIX).bin: $(SOURCES) $(BLAZE_HOME)/include/tasks.hpp
 	$(CXX) $(CXXFLAGS) $(HTMFLAGS) -pthread -DBLAZE_VERSION=1 -I$(BLAZE_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(OUTPUTDIR)/$(CODE)-omp-$(COMP)$(SUFFIX).bin: $(SOURCES)

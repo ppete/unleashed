@@ -510,18 +510,18 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 
 #if BLAZE_VERSION
 
-struct Void
-{
-  Void operator+=(Void) { return *this; }
-};
+typedef uab::Void result_type;
+// typedef int result_type;
 
 template <class T>
 struct tsp_adaptive
 {
   tsp_adaptive() {}
 
-  Void operator()(uab::pool<T>& tasks, T task)
+  result_type operator()(uab::pool<T>& tasks, T task)
   {
+    result_type ctr(0); 
+
     while(true)
     {
       //base case
@@ -532,7 +532,7 @@ struct tsp_adaptive
           result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
 
           upd_lower_bound_if_needed(result);
-          return Void();
+          return ctr;
         }
       }
       else
@@ -542,7 +542,7 @@ struct tsp_adaptive
           result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
           upd_lower_bound_if_needed(result);
-          return Void();
+          return ctr;
         }
       }
 
@@ -550,15 +550,19 @@ struct tsp_adaptive
                                      ? create_branch(task.branch->left_branch)
                                      : create_branch(task.branch->right_branch);
 
-      if (pbranch == nullptr) return Void();
+      if (pbranch == nullptr) return ctr;
 
       tsp_task::branch_ptr branch(pbranch);
 
       tasks.enq(T{task.graph, branch, true});
       task = T{task.graph, branch, false};
+      ctr += 1;
     }
   }
 };
+
+void print(uab::Void) {}
+void print(int x) { std::cerr << x << std::endl; }
 
 void tsp_launch(int** graph, BranchSet* branch, bool left)
 {
@@ -567,7 +571,9 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
   tsp_adaptive<tsp_task>   fun;
   tsp_task::branch_ptr    br(branch);
 
-  uab::execute_tasks(NUMTHREADS, fun, tsp_task(graph, br, left));
+  result_type res = uab::execute_tasks(NUMTHREADS, fun, tsp_task(graph, br, left));
+
+  print(res);  
 }
 #endif /* BLAZE__VERSION */
 

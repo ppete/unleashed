@@ -163,27 +163,33 @@ struct knapsack_task
 
 #if BLAZE_VERSION
 
+typedef uab::Void result_type;
+// typedef size_t result_type;
+
 struct knapsack_par
 {
   template <class P>
-  auto operator()(P& pool, knapsack_task task) -> uab::Void
+  auto operator()(P& pool, knapsack_task task) -> result_type
   {
+    result_type res = result_type();
+
     for (;;)
     {
       /* base case: full knapsack or no items */
-      if (task.c < 0) return uab::Void();
+      if (task.c < 0) return res;
 
       /* feasible solution, with value v */
       if (task.n == 0 || task.c == 0)
       {
         update_best_so_far(task.v);
-        return uab::Void();
+        return res;
       }
 
       double ub = (double) task.v + task.c * task.e->value / task.e->weight;
 
       // prune if it is worse than the best available alternative
-      if (ub < best_so_far.load(std::memory_order_relaxed)) return uab::Void();
+      if (ub < best_so_far.load(std::memory_order_relaxed))
+        return res;
 
       /* compute the best solution without the current item in the knapsack */
       if ((!CUTOFF) || (task.n > CUTOFF))
@@ -191,17 +197,28 @@ struct knapsack_par
       else
         (*this)(pool, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
+      res += 1;
+
       /* compute the best solution with the current item in the knapsack */
       // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
       task = knapsack_task{ task.e + 1, task.c - task.e->weight, task.n - 1, task.v + task.e->value };
     }
+
+    return res;
   }
 };
 
+static inline
+void print(size_t res)       { std::cerr << res << std::endl; }
+
+static inline
+void print(const uab::Void&) { }
+
 auto knapsack(item *e, int c, int n) -> int
 {
-  uab::execute_tasks(NUMTHREADS, knapsack_par(), knapsack_task{e, c, n, 0} );
+  result_type res = uab::execute_tasks(NUMTHREADS, knapsack_par(), knapsack_task{e, c, n, 0} );
 
+  print(res);
   return best_so_far.load(std::memory_order_relaxed);
 }
 
@@ -222,41 +239,65 @@ void set_cilk_workers(int n)
 }
 
 
+// auto knapsack_par(knapsack_task task, cilk::reducer_opadd<size_t>& sum) -> void
 auto knapsack_par(knapsack_task task) -> void
 {
+  size_t res = 0;
+
   for (;;)
   {
+    // ++res;
+
     /* base case: full knapsack or no items */
-    if (task.c < 0) return;
+    if (task.c < 0)
+    { 
+      // sum+= res; 
+      return; 
+    }
 
     /* feasible solution, with value v */
     if (task.n == 0 || task.c == 0)
     {
       update_best_so_far(task.v);
+      // sum+= res;
       return;
     }
 
     double ub = (double) task.v + task.c * task.e->value / task.e->weight;
 
     // prune if it is worse than the best available alternative
-    if (ub < best_so_far.load(std::memory_order_relaxed)) return;
+    if (ub < best_so_far.load(std::memory_order_relaxed))
+    {
+      // sum+= res;
+      return;
+    }
 
     /* compute the best solution without the current item in the knapsack */
-    if ((!CUTOFF) || (task.n > CUTOFF))
-    cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+    if ((!CUTOFF) || (task.n > CUTOFF)) 
+    {
+      cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+      // cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v }, sum);
+    }
     else
+    {
       knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+      // knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v }, sum);
+    }
 
     /* compute the best solution with the current item in the knapsack */
     // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
     task = knapsack_task{ task.e + 1, task.c - task.e->weight, task.n - 1, task.v + task.e->value };
-  };
+  }
 }
 
 auto knapsack(item *e, int c, int n) -> int
 {
   set_cilk_workers(NUMTHREADS);
   knapsack_par(knapsack_task{e, c, n, 0});
+
+  // cilk::reducer_opadd<size_t> sum;
+  // knapsack_par(knapsack_task{e, c, n, 0}, sum);
+  // std::cerr << sum.get_value() << std::endl;
 
   return best_so_far.load(std::memory_order_relaxed);
 }

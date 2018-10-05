@@ -56,6 +56,13 @@
 #define PROBLEM_SIZE (40)
 #endif /* PROBLEM_SIZE */
 
+// CUTOFF 0              -> no cutoff
+//        1              -> elides last task-level
+//        ...
+//        PROBLEM_SIZE-1 -> two tasks
+//        PROBLEM_SIZE   -> single task
+#define CUTOFF (0)
+
 #define PRINT_STATS 0
 
 #if OMP_VERSION
@@ -141,13 +148,6 @@ struct histogram
 #endif /* WITH_HISTOGRAM */
 
 
-template <class I>
-struct fibonacci_task
-{
-  I num;
-};
-
-
 #if OMP_VERSION
 
 //~ histogram<long double> hist(0.0, 1.0, 100);
@@ -159,21 +159,26 @@ size_t thread_num()
 }
 
 template <class I>
-void fib_task(fibonacci_task<I> task, uab::aligned_type<std::pair<I, size_t>, CACHELINESZ>* s)
+void fib_task(I task, uab::aligned_type<std::pair<I, size_t>, CACHELINESZ>* s)
 {
-  typedef fibonacci_task<I> fibonacci_task;
-
   size_t thrnum = thread_num();
 
-  while (task.num > 1)
+  if (task <= 1) { s[thrnum].val.first += task; return; }
+
+  while (--task > 1)
+  {
+    if ((CUTOFF == 0) || (task >= CUTOFF))
   {
     #pragma omp task
-    fib_task(fibonacci_task{task.num-2}, s);
-
-    task = fibonacci_task{task.num-1};
+      fib_task<I>(task-1, s);
+    }
+    else
+    {
+      fib_task<I>(task-1, s);
+    }
   }
 
-  s[thrnum].val.first  += task.num;
+  s[thrnum].val.first  += 1;
   s[thrnum].val.second += 1;
 }
 
@@ -197,7 +202,7 @@ auto fib_task(I num) -> std::pair<I, size_t>
     {
       #pragma omp taskgroup
       {
-        fib_task(fibonacci_task<I>{num}, s);
+        fib_task(num, s);
       }
     }
 
@@ -245,15 +250,20 @@ uab::aligned_atomic_type<size_t, CACHELINESZ> globals<D>::splits(1);
 template <class G, class I>
 auto compute_fib(G& taskgroup, I task) -> void // std::pair<D, size_t>
 {
-  while (task > 1)
+  if (task <= 1) return /* task */;
+
+  while (--task > 1)
   {
+    if ((CUTOFF == 0) || (task >= CUTOFF))
     taskgroup.run( [&taskgroup, task]()->void
-                   { compute_fib(taskgroup, task-2);
+                     { compute_fib(taskgroup, task-1);
                    }
                  );
-    task =    task-1;
+    else
+      compute_fib(taskgroup, task-1);
   }
-  // return task;
+
+  return /*1*/;
 }
 
 template <class I>
@@ -276,29 +286,31 @@ auto fib_task(I num) -> std::pair<I,size_t>
 template <class I>
 struct compute_fib
 {
-  template <class T, class A>
-  I operator()(uab::pool<T,A>& tasks, T task)
+  template <class Pool>
+  I operator()(Pool& pool, I task)
   {
-    typedef fibonacci_task<I> fibonacci_task;
+    if (task <= 1) return task;
 
-    while (task.num > 1)
+    I res = I(1);
+
+    while (--task > 1)
     {
-      tasks.enq(fibonacci_task{task.num-2});
-      task =    fibonacci_task{task.num-1};
+      if ((CUTOFF == 0) || (task >= CUTOFF))
+        pool.enq(task-1);
+      else
+        res += (*this) (pool, task-1);
     }
 
-    return task.num;
+    return res;
   }
 };
 
 template <class I>
 std::pair<I, size_t> fib_task(I num)
 {
-  typedef fibonacci_task<I> fibonacci_task;
-
   compute_fib<I> fun;
 
-  return std::make_pair(uab::execute_tasks(NUMTHREADS, fun, fibonacci_task{ num }), 0);
+  return std::make_pair(uab::execute_tasks(NUMTHREADS, fun, num), 0);
 }
 
 #endif /* BLAZE_VERSION */
@@ -319,30 +331,48 @@ void set_cilk_workers(int n)
 
 
 template <class I>
-void compute_fib(fibonacci_task<I> task, cilk::reducer_opadd<I>& sum)
+I compute_fib_nofork(I task)
 {
-  typedef fibonacci_task<I> fibonacci_task;
+  I res = I();
 
-  while (task.num > 1)
+  while (task > 1)
   {
-    cilk_spawn compute_fib(fibonacci_task{task.num-2}, sum);
+    res += compute_fib_nofork(task-2);
 
-    task =    fibonacci_task{task.num-1};
+    task = task-1;
   }
 
-  sum += task.num;
+  return res + task.num;
+}
+
+
+template <class I>
+void compute_fib(I task, cilk::reducer_opadd<I>& sum)
+{
+  if (task <= 1) { sum += task; return; }
+
+  while (--task > 1)
+  {
+    if ((CUTOFF == 0) || (task >= CUTOFF))
+      cilk_spawn compute_fib(task-1, sum);
+    else
+    {
+      compute_fib(task-1, sum);
+      // faster: sum += compute_fib_nofork(fibonacci_task{task.num-2});
+    }
+  }
+
+  sum += task;
 }
 
 template <class I>
 std::pair<I, size_t> fib_task(I num)
 {
-  typedef fibonacci_task<I> fibonacci_task;
-
   set_cilk_workers(NUMTHREADS);
 
   cilk::reducer_opadd<I> sum;
 
-  compute_fib<I>(fibonacci_task{ num }, sum);
+  compute_fib<I>(num, sum);
   return std::make_pair(sum.get_value(), 0);
 }
 
@@ -360,23 +390,47 @@ struct qtask
   qt_sinc_t* sinc;
 };
 
+template <class I>
+aligned_t compute_fib_nofork(qtask<I>& task)
+{
+  I         res = I();
+
+  while (task.num > 1)
+  {
+    qtask<I> tsk2 = {task.num-2, task.sinc};
+
+    res += compute_fib_nofork<I>(tsk2);
+    task.num = task.num-1;
+  }
+
+  return res+task.num;
+}
 
 template <class I>
 aligned_t compute_fib(void* qtsk)
 {
   qtask<I>& task = *reinterpret_cast<qtask<I>*>(qtsk);
 
-  while (task.num > 1)
-  {
-    qtask<I> tsk2 = {task.num-2, task.sinc};
+  if (task.num <= 1) { qt_sinc_submit(task.sinc, &task.num); return aligned_t(); }
 
+  I         res = I(1);
+
+  while (--task.num > 1)
+  {
+    qtask<I> tsk2 = {task.num-1, task.sinc};
+
+    if ((CUTOFF == 0) || (task.num >= CUTOFF))
+    {
     qt_sinc_expect(task.sinc, 1);
     qthread_fork_copyargs( compute_fib<I>, &tsk2, sizeof(qtask<I>), nullptr );
-
-    task.num = task.num-1;
+    }
+    else
+    {
+      res += compute_fib_nofork<I>(tsk2);
+    }
   }
 
-  qt_sinc_submit(task.sinc, &task.num);
+  qt_sinc_submit(task.sinc, &res);
   return 0;
 }
 

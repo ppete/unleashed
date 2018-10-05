@@ -12,12 +12,14 @@ void qthr_setenv(std::string name, V val)
 
   str << name << "=" << val;
 
-  char* envset = new char[str.str().size()+1];
+  size_t numchr = str.str().size()+1;
+  char*  envset = static_cast<char*>(malloc(sizeof(char) * numchr));
 
-  memcpy(envset, str.str().c_str(), str.str().size()+1);
+  memcpy(envset, str.str().c_str(), numchr);
   putenv(envset);
 
-  // delete[] envset;
+  // putenv may use the string, thus it MUST NOT be freed
+  // free envset;
 }
 
 static inline
@@ -25,7 +27,8 @@ void init_qthreads(size_t numthreads, size_t stacklen = 0)
 {
   assert(numthreads);
 
-  size_t num_shepherds = (numthreads+1) / 2;
+  size_t worker_per_shepherd = 2;
+  size_t num_shepherds = (numthreads+worker_per_shepherd-1) / worker_per_shepherd;
 
   qthr_setenv("QTHREAD_INFO", 2); // print config output
   qthr_setenv("QTHREAD_HWPAR", numthreads);

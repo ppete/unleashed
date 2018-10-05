@@ -152,6 +152,7 @@ namespace uab
   };
 #endif
 
+#if !defined(_WIN32)
   thread_local std::minstd_rand ttas_lock_backoff_rand(77);
 
   struct ttas_lock_backoff
@@ -204,28 +205,7 @@ namespace uab
       ttas_lock_backoff(ttas_lock_backoff&&) = delete;
       ttas_lock_backoff& operator=(const ttas_lock_backoff&) = delete;
   };
-
-  template <class T, size_t ALIGNSZ>
-  struct alignas(ALIGNSZ) aligned_type
-  {
-    T val;
-  };
-
-  template <class T, size_t ALIGNSZ>
-  struct aligned_atomic_type
-  {
-    std::atomic<T> val;
-    char           x[ALIGNSZ-sizeof(val)];
-
-    aligned_atomic_type(T v)
-    : val(v)
-    {}
-
-    aligned_atomic_type()
-    : val(T())
-    {}
-  };
-
+#endif
 
   thread_local size_t                  anderson_ticket;
 

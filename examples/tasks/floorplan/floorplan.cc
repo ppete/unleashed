@@ -260,7 +260,8 @@ static void write_outputs() {
 
 #ifdef BLAZE_VERSION
 
-typedef uab::Void Void;
+typedef uab::Void result_type;
+// typedef size_t result_type;
 
 struct floorplan_task
 {
@@ -281,7 +282,7 @@ struct floorplan_task
 
 #if 0 /* MANUAL_AUTO_OPS */
   floorplan_task(const floorplan_task& o)
-  : id(o.id), i(o.i), NWS_j0(o.NWS_j0), NWS_j1(o.NWS_j1), CELLS(std::move(o.CELLS))
+  : id(o.id), i(o.i), NWS_j0(o.NWS_j0), NWS_j1(o.NWS_j1), CELLS(o.CELLS)
   {
     memcpy(FOOTPRINT, o.FOOTPRINT, sizeof(coor));
     memcpy(BOARD,     o.BOARD,     sizeof(ibrd));
@@ -332,7 +333,7 @@ static std::mutex updlock;
 
 template <class Pool>
 static
-Void add_cell_task(Pool& p, floorplan_task task)
+result_type add_cell_task(Pool& p, floorplan_task task)
 {
   /* for each possible shape */
   for (int i = 0; i < task.CELLS.get()[task.id].n; i++)
@@ -351,13 +352,12 @@ Void add_cell_task(Pool& p, floorplan_task task)
     }
   }
 
-  return Void();
+  return result_type(1);
 }
-
 
 template <class Pool>
 static
-auto compute_task(Pool& p, floorplan_task t) -> Void
+auto compute_task(Pool& p, floorplan_task t) -> result_type
 {
   cell*                    cells = new cell[N+1];
   cell_ptr cellptr(cells);
@@ -378,7 +378,7 @@ auto compute_task(Pool& p, floorplan_task t) -> Void
   if (! lay_down(t.id, board, cells))
   {
     bots_debug("Chip %d, shape %d does not fit\n", t.id, t.i);
-    return Void();
+    return result_type(1);
   }
 
   /* calculate new footprint of board and area of footprint */
@@ -416,30 +416,35 @@ auto compute_task(Pool& p, floorplan_task t) -> Void
     bots_debug("T  %d, %d\n", area, MIN_AREA.load(std::memory_order_relaxed));
   }
 
-  return Void();
+  return result_type(1);
 }
 
 struct TaskHandler
 {
   template <class Pool>
-  Void operator()(Pool& p, floorplan_task task)
+  result_type operator()(Pool& p, floorplan_task task)
   {
     if (is_compute_task(task))
     {
-      return compute_task(p, task);
+      return compute_task(p, std::move(task));
     }
 
-    return add_cell_task(p, task);
+    return add_cell_task(p, std::move(task));
   }
 };
 
+static inline
+void print(size_t res)       { std::cerr << res << std::endl; }
+
+static inline
+void print(const uab::Void&) { }
 
 static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
   cell_ptr ptr(CELLS);
 
-  uab::execute_tasks( NUMTHREADS,
+  result_type res = uab::execute_tasks( NUMTHREADS,
                       TaskHandler(),
                       floorplan_task( id,
                                       FOOTPRINT,
@@ -447,6 +452,8 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
                                       ptr
                                     )
                     );
+
+  print(res);
 }
 
 #endif /* BLAZE_TASK */
@@ -756,6 +763,14 @@ static std::mutex updlock;
 static
 void add_cell_task(floorplan_task t);
 
+// \note count tasks
+// static
+// void add_cell_task(floorplan_task t, cilk::reducer_opadd<size_t>& sum);
+// 
+// static
+// void compute_task(floorplan_task t, cilk::reducer_opadd<size_t>& sum)
+
+
 static
 void compute_task(floorplan_task t)
 {
@@ -777,6 +792,7 @@ void compute_task(floorplan_task t)
   if (! lay_down(t.id, board, cells))
   {
     bots_debug("Chip %d, shape %d does not fit\n", t.id, t.i);
+    // sum+=1;
     delete[] cells;
     return;
   }
@@ -809,6 +825,7 @@ void compute_task(floorplan_task t)
   else if (area < MIN_AREA.load(std::memory_order_relaxed))
   {
     add_cell_task(floorplan_task(cells[t.id].next, footprint, board, cells));
+    // add_cell_task(floorplan_task(cells[t.id].next, footprint, board, cells), sum);
     /* if area is greater than or equal to best area, prune search */
   }
   else
@@ -816,10 +833,12 @@ void compute_task(floorplan_task t)
     bots_debug("T  %d, %d\n", area, MIN_AREA.load(std::memory_order_relaxed));
   }
 
+  // sum+=1;
   delete[] cells;
 }
 
 // static
+// void add_cell_task(floorplan_task task, cilk::reducer_opadd<size_t>& sum)
 void add_cell_task(floorplan_task task)
 {
   /* for each possible shape */
@@ -837,8 +856,11 @@ void add_cell_task(floorplan_task task)
       task.NWS_j1 = NWS[j][1];
 
       cilk_spawn compute_task(task);
+      // cilk_spawn compute_task(task, sum);
     }
   }
+
+  // sum+=1;
 }
 
 static
@@ -858,8 +880,11 @@ static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 {
   set_cilk_workers(NUMTHREADS);
+  //   cilk::reducer_opadd<size_t> sum;
 
   add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, CELLS));
+  // add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, CELLS), sum);
+  // std::cerr << sum.get_value() << std::endl;
 }
 
 #endif /* CILK_VERSION */
