@@ -32,6 +32,8 @@ namespace uab
   ///    \endcode
   struct Void
   {
+    Void() {}
+
     template <class T = int>
     Void(const T&) {}
 

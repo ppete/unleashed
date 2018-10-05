@@ -242,7 +242,7 @@ void set_cilk_workers(int n)
 // auto knapsack_par(knapsack_task task, cilk::reducer_opadd<size_t>& sum) -> void
 auto knapsack_par(knapsack_task task) -> void
 {
-  size_t res = 0;
+  // size_t res = 0;
 
   for (;;)
   {

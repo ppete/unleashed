@@ -6,6 +6,7 @@ endif
 .PHONY: default clean
 
 default:
+	mkdir -p ./tmp
 	cd pi; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd fib; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd tsp; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)

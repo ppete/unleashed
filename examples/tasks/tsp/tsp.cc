@@ -569,7 +569,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
   min_path.store(std::numeric_limits<result_t>::max());
 
   tsp_adaptive<tsp_task>   fun;
-  tsp_task::branch_ptr    br(branch);
+  tsp_task::branch_ptr     br(branch);
 
   result_type res = uab::execute_tasks(NUMTHREADS, fun, tsp_task(graph, br, left));
 
