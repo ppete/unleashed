@@ -1,3 +1,38 @@
+/**
+ * A simple, portable, and generic framework for reductions over tasks.
+ *
+ * Implementer: Peter Pirkelbauer (UAB) - 2018
+ *
+ * This program is part of the Blaze Concurrent Library.
+ * Copyright (c) 2018, University of Alabama at Birmingham
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ * list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ * this list of conditions and the following disclaimer in the documentation and/or
+ * other materials provided with the distribution.
+ * 3. Neither the name of the copyright holders nor the names of its contributors
+ * may be used to endorse or promote products derived from this software without
+ * specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 #ifndef _TASKS_HPP
 #define _TASKS_HPP
 
@@ -873,16 +908,19 @@ namespace uab
   /// \code
   ///    struct fib {
   ///      template <class Pool>
-  ///      int operator(Pool& p, int task) {
-  ///        while (task > 1) {
-  ///          p.enq(task-2);
-  ///          --task;
+  ///      int operator(Pool& p, int n) {
+  ///        if (n <= 1) return n;
+  ///        while (--task > 1) {
+  ///          // push task-2
+  ///          p.enq(task-1);
+  ///
+  ///          // task-1 forms the continuation that runs on the same thread
   ///        }
   ///        return task;
   ///      }
   ///    };
   ///
-  ///    int res = execute_tasks(20, fib(), 10);
+  ///    int res = execute_tasks(20 /* threads */, fib(), 10 /* argument */);
   /// \endcode
   template <class F, class T>
   auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T>(0,task), task))
@@ -945,51 +983,6 @@ namespace uab
 
     return res;
   }
-
-#if 0
-  /// auxiliary class for non-blaze task systems
-  template <class T>
-  struct reducer
-  {
-    std::atomic<size_t>                 ctr;
-    uab::aligned_type<T, CACHELINESZ>   myres[256];
-
-    static thread_local int             id;
-
-    explicit
-    reducer(size_t numthreads)
-    : ctr(0)
-    {
-      for (size_t i = 0; i < numthreads; ++i)
-        myres[i].val = T();
-    }
-
-    void operator()(const T& elem)
-    {
-      if (id < 0)
-      {
-        id = ctr.fetch_add(1, std::memory_order_relaxed);
-      }
-
-      myres[val] += elem;
-    }
-
-    T get_value()
-    {
-      T res = T();
-
-      for (size_t i = 0; i < numthreads; ++i)
-        res += myres[i].val;
-    }
-  };
-
-  template <class T>
-  std::atomic<int> reducer<T>::ctr(0);
-
-  template <class T>
-  thread_local
-  int reducer<T>::id(-1);
-#endif /* 0 */
 } // end namespace uab
 
 #endif /* _TASKS_HPP */

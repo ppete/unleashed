@@ -48,56 +48,16 @@
 #include <list>
 #include <vector>
 
+#include "../common/common-includes.hpp"
+
+#include "atomicutil.hpp"
+
 #define PRINT_STATS 0
 #define WITH_HISTOGRAM 0
-
-#ifndef NUMTHREADS
-#define NUMTHREADS (20)
-#endif /* NUMTHREADS */
 
 #ifndef PROBLEM_SIZE
 #define PROBLEM_SIZE (1e-17)
 #endif /* PROBLEM_SIZE */
-
-
-#if OMP_VERSION
-#include <omp.h>
-#endif /* OMP_VERSION */
-
-#if TBB_VERSION
-#include <mutex>
-#include <tbb/task_scheduler_init.h>
-#include <tbb/task_group.h>
-#endif /* TBB_VERSION */
-
-#if BLAZE_VERSION
-  // NOTE: include archmodel.hpp and typedef arch_model to target system
-  //       to make number of work-stealing attempts sensitive to
-  //       thief-victim cache hierachy. Mileage varies depending on
-  //       benchmark.
-  //~ #include "archmodel.hpp"
-
-  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
-  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
-  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
-
-  #include "tasks.hpp"
-#endif /* BLAZE_VERSION */
-
-#if CILK_VERSION
-#include <cstdio>
-#include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
-#include <cilk/cilk_api.h>
-#endif /* CILK_VERSION */
-
-#if QTHREADS_VERSION
-#include <qthread/qthread.hpp>
-#include <qthread/sinc.h>
-#include "../common/qthreads.hpp"
-#endif /* QTHREADS_VERSION */
-
-#include "atomicutil.hpp"
 
 
 typedef long double pi_type;
@@ -282,8 +242,10 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
     #pragma omp atomic
     res += s[thrnum].val.first;
 
+/*
     #pragma omp atomic
     ctr += s[thrnum].val.second;
+*/
   }
 
   splits = ctr;
@@ -301,29 +263,12 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 
 #if TBB_VERSION
 
-template <class D> struct globals
-{
-  static uab::aligned_atomic_type<D, CACHELINESZ>      result;
-  static uab::aligned_atomic_type<size_t, CACHELINESZ> splits;
-
-  static void add(D d)
-  {
-    D v = result.val.load(std::memory_order_relaxed);
-
-    while (!result.val.compare_exchange_strong(v, v+d, std::memory_order_relaxed, std::memory_order_relaxed));
-  }
-};
-
-template <class D>
-uab::aligned_atomic_type<D, CACHELINESZ> globals<D>::result(0);
-
-
-template <class D>
-uab::aligned_atomic_type<size_t, CACHELINESZ> globals<D>::splits(1);
-
-
 template <class G, class F, class D>
-auto integrate_adaptive(G& taskgroup, F f, D eps, integration_task<D> task) -> void // std::pair<D, size_t>
+void integrate_adaptive( G& taskgroup,
+                         F f,
+                         D eps,
+                         integration_task<D> task,
+                         uab::simple_reducer<D>& reducer)
 {
   typedef integration_task<D> integration_task;
 
@@ -343,23 +288,23 @@ auto integrate_adaptive(G& taskgroup, F f, D eps, integration_task<D> task) -> v
 
     if (dif >= tol)
     {
-      taskgroup.run([&taskgroup,f,eps,task,halfstep,a1]()->void
-                     { integrate_adaptive(taskgroup, f, eps, integration_task{task.low, halfstep, a1});
+      taskgroup.run( [&taskgroup,f,eps,task,halfstep,a1,&reducer]()->void
+                     {
+                       integrate_adaptive( taskgroup,
+                                           f,
+                                           eps,
+                                           integration_task{task.low, halfstep, a1},
+                                           reducer
+                                         );
                      }
                    );
-
-#ifndef ZEROGLOBALS
-      globals<D>::splits.val.fetch_add(1, std::memory_order_relaxed);
-#endif /* !ZEROGLOBALS */
 
       // run on same thread
       task = integration_task{task.low+halfstep, halfstep, a2};
     }
   } while (dif >= tol);
 
-#ifndef ZEROGLOBALS
-      globals<D>::add(a);
-#endif /* !ZEROGLOBALS */
+  reducer += a;
 }
 
 
@@ -368,13 +313,14 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 {
   tbb::task_scheduler_init init(NUMTHREADS);
   tbb::task_group          g;
+  uab::simple_reducer<D>   reducer;
   D                        step = hi-lo;
 
-  integrate_adaptive(g, f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)});
+  integrate_adaptive(g, f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)}, reducer);
 
   g.wait();
-  splits = globals<D>::splits.val.load(std::memory_order_relaxed);
-  return globals<D>::result.val.load(std::memory_order_relaxed);
+  splits = 0;
+  return reducer.get_value();
 }
 
 #endif /* TBB_VERSION */
@@ -522,6 +468,9 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 template <class D, class F, class T>
 struct adaptive_integral
 {
+  typedef D result_type;
+  // typedef std::pair<D, size_t> result_type;
+
   F        fun;
   D        eps;
 
@@ -531,11 +480,11 @@ struct adaptive_integral
   {}
 
   template <class pool_t>
-  D operator()(pool_t& tasks, T task)
+  result_type operator()(pool_t& tasks, T task)
   {
     D   dif;
     D   tol;
-    D   res;
+    result_type res;
 
     do
     {

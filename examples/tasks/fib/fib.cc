@@ -48,9 +48,9 @@
 #include <list>
 #include <vector>
 
-#ifndef NUMTHREADS
-#define NUMTHREADS (20)
-#endif /* NUMTHREADS */
+#include "../common/common-includes.hpp"
+
+#include "atomicutil.hpp"
 
 #ifndef PROBLEM_SIZE
 #define PROBLEM_SIZE (40)
@@ -64,50 +64,6 @@
 #define CUTOFF (0)
 
 #define PRINT_STATS 0
-
-#if OMP_VERSION
-#include <omp.h>
-#endif
-
-#if TBB_VERSION
-#include <tbb/task_scheduler_init.h>
-#include <tbb/task_group.h>
-#endif
-
-#if BLAZE_VERSION
-  // NOTE: include archmodel.hpp and typedef arch_model to target system
-  //       to make number of work-stealing attempts sensitive to
-  //       thief-victim cache hierachy. Mileage varies depending on
-  //       benchmark.
-  //~ #include "archmodel.hpp"
-
-  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
-  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
-  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
-
-  #include "tasks.hpp"
-#endif /* BLAZE_VERSION */
-
-#if CILK_VERSION
-#include <cstdio>
-#include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
-#include <cilk/cilk_api.h>
-#endif /* CILK_VERSION */
-
-#if QTHREADS_VERSION
-#include <qthread/qthread.hpp>
-#include <qthread/sinc.h>
-#include "../common/qthreads.hpp"
-#endif /* QTHREADS_VERSION */
-
-#if QTHREADS_VERSION_ORIGINAL
-#include <qthread/qthread.hpp>
-#include <qthread/sinc.h>
-#include "../common/qthreads.hpp"
-#endif /* QTHREADS_VERSION_ORIGINAL */
-
-#include "atomicutil.hpp"
 
 
 typedef long long fib_type;
@@ -226,44 +182,23 @@ auto fib_task(I num) -> std::pair<I, size_t>
 
 #if TBB_VERSION
 
-template <class D> struct globals
-{
-  static uab::aligned_atomic_type<D, CACHELINESZ>      result;
-  static uab::aligned_atomic_type<size_t, CACHELINESZ> splits;
-
-  static void add(D d)
-  {
-    D v = result.val.load(std::memory_order_relaxed);
-
-    while (!result.val.compare_exchange_strong(v, v+d, std::memory_order_relaxed, std::memory_order_relaxed));
-  }
-};
-
-template <class D>
-uab::aligned_atomic_type<D, CACHELINESZ> globals<D>::result(0);
-
-
-template <class D>
-uab::aligned_atomic_type<size_t, CACHELINESZ> globals<D>::splits(1);
-
-
 template <class G, class I>
-auto compute_fib(G& taskgroup, I task) -> void // std::pair<D, size_t>
+auto compute_fib(G& taskgroup, I task, uab::simple_reducer<I>& reducer) -> void
 {
-  if (task <= 1) return /* task */;
+  if (task <= 1) { reducer += task; return; }
 
   while (--task > 1)
   {
     if ((CUTOFF == 0) || (task >= CUTOFF))
-    taskgroup.run( [&taskgroup, task]()->void
-                     { compute_fib(taskgroup, task-1);
+      taskgroup.run( [&taskgroup, task, &reducer]()->void
+                     { compute_fib(taskgroup, task-1, reducer);
                    }
                  );
     else
-      compute_fib(taskgroup, task-1);
+      compute_fib(taskgroup, task-1, reducer);
   }
 
-  return /*1*/;
+  reducer += 1;
 }
 
 template <class I>
@@ -271,11 +206,12 @@ auto fib_task(I num) -> std::pair<I,size_t>
 {
   tbb::task_scheduler_init init(NUMTHREADS);
   tbb::task_group          g;
+  uab::simple_reducer<I>   reducer(0);
 
-  compute_fib(g, num);
+  compute_fib(g, num, reducer);
 
   g.wait();
-  return std::pair<I,size_t>();
+  return std::make_pair(reducer.get_value(), size_t());
 }
 
 #endif /* TBB_VERSION */

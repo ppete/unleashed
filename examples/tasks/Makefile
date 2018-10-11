@@ -10,6 +10,7 @@ default:
 	cd pi; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd fib; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd tsp; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
+	cd dot-product; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd nqueens-0; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd alignment-2l; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
 	cd floorplan; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
@@ -19,6 +20,7 @@ clean:
 	cd pi; $(MAKE) OUTPUTDIR=../tmp clean
 	cd fib; $(MAKE) OUTPUTDIR=../tmp clean
 	cd tsp; $(MAKE) OUTPUTDIR=../tmp clean
+	cd dot-product; $(MAKE) OUTPUTDIR=../tmp clean
 	cd nqueens-0; $(MAKE) OUTPUTDIR=../tmp clean
 	cd alignment-2l; $(MAKE) OUTPUTDIR=../tmp clean
 	cd floorplan; $(MAKE) OUTPUTDIR=../tmp clean

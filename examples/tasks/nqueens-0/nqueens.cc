@@ -44,6 +44,10 @@
 #include <list>
 #include <vector>
 
+#include "../common/common-includes.hpp"
+
+#include "atomicutil.hpp"
+
 #ifndef NUMTHREADS
 #define NUMTHREADS (20)
 #endif /* NUMTHREADS */
@@ -52,47 +56,8 @@
 #define PROBLEM_SIZE (13)
 #endif /* PROBLEM_SIZE */
 
-#define PRINT_STATS 0
-
 #define CUTOFF (PROBLEM_SIZE)
-
-#if OMP_VERSION
-#include <omp.h>
-#endif
-
-#if TBB_VERSION
-#include <tbb/task_scheduler_init.h>
-#include <tbb/task_group.h>
-#endif
-
-#if BLAZE_VERSION
-  // NOTE: include archmodel.hpp and typedef arch_model to target system
-  //       to make number of work-stealing attempts sensitive to
-  //       thief-victim cache hierachy. Mileage varies depending on
-  //       benchmark.
-  //~ #include "archmodel.hpp"
-
-  //~ typedef uab::power_arch<2, 20, 4>   arch_model; // power9 dual socket
-  //~ typedef uab::power_arch<2, 10, 8>   arch_model; // power8 dual socket
-  //~ typedef uab::intel_arch<2, 10, 2> arch_model;    // intel dual socket
-
-  #include "tasks.hpp"
-#endif /* BLAZE_VERSION */
-
-#if CILK_VERSION
-#include <cstdio>
-#include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
-#include <cilk/cilk_api.h>
-#endif /* CILK_VERSION */
-
-#if QTHREADS_VERSION
-#include <qthread/qthread.hpp>
-#include <qthread/sinc.h>
-#include "../common/qthreads.hpp"
-#endif /* QTHREADS_VERSION */
-
-#include "atomicutil.hpp"
+#define PRINT_STATS 0
 
 template <size_t N>
 struct board
@@ -270,15 +235,16 @@ size_t nqueens_task()
 #if TBB_VERSION
 
 template <class G, size_t N>
-size_t compute_nqueens(G& taskgroup, board<N> task)
+void
+compute_nqueens(G& taskgroup, board<N> task, uab::simple_reducer<size_t>& reducer)
 {
   for (;;)
   {
     // check if last added queen is valid
-    if (!isValid(task)) return 0;
+    if (!isValid(task)) return;
 
     // if board is full
-    if (isComplete(task)) return 1;
+    if (isComplete(task)) { reducer += 1; return; }
 
     for (size_t i = N-1; i > 0; --i)
     {
@@ -288,12 +254,12 @@ size_t compute_nqueens(G& taskgroup, board<N> task)
       ++newtask.rows;
 
       if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
-      taskgroup.run( [&taskgroup, newtask]()->void
-                   { compute_nqueens(taskgroup, newtask);
+        taskgroup.run( [&taskgroup, newtask, &reducer]()->void
+                     { compute_nqueens(taskgroup, newtask, reducer);
                    }
                  );
       else
-        compute_nqueens(taskgroup, newtask);
+        compute_nqueens(taskgroup, newtask, reducer);
     }
 
     task.queens[task.rows] = 0;
@@ -306,12 +272,13 @@ size_t nqueens_task()
 {
   tbb::task_scheduler_init init(NUMTHREADS);
   tbb::task_group          g;
+  uab::simple_reducer<size_t> reducer;
   board<N>                 brd;
 
-  compute_nqueens(g, brd);
+  compute_nqueens(g, brd, reducer);
 
   g.wait();
-  return 0;
+  return reducer.get_value();
 }
 
 #endif /* TBB_VERSION */
