@@ -139,7 +139,7 @@ namespace uab
 
       if ((thiscore < NUM_CORES_PER_SOCKET) == (thatcore < NUM_CORES_PER_SOCKET)) return 4;
 
-      return 1;
+      return 2;
     }
   };
 }
