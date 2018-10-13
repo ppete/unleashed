@@ -205,6 +205,8 @@ void dp_compute(D* lhs, D* rhs, size_t lo, size_t hi)
 template <class D>
 auto dp_calc(D* lhs, D* rhs, size_t len) -> D
 {
+  omp_set_num_threads(NUMTHREADS);
+
   reduction_type res;
 
   #pragma omp parallel shared(lhs, rhs, len)
@@ -232,6 +234,19 @@ auto dp_calc(D* lhs, D* rhs, size_t len) -> D
 #endif /* OMP_VERSION */
 
 #if CILK_VERSION
+
+void set_cilk_workers(int n)
+{
+  assert(n <= 9999);
+
+  char str[5];
+
+  sprintf(str, "%d", n);
+
+  bool success = __cilkrts_set_param("nworkers", str) != 0;
+  assert(success);
+}
+
 
 template <class D>
 void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
@@ -261,6 +276,8 @@ void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
 template <class D>
 auto dp_calc(D* lhs, D* rhs, size_t len) -> D
 {
+  set_cilk_workers(NUMTHREADS);
+
   cilk::reducer_opadd<D> product;
   cilk::reducer_opadd<D> lhs_len_sq;
   cilk::reducer_opadd<D> rhs_len_sq;

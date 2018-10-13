@@ -51,7 +51,7 @@
 
 // Problem size
 #ifndef PROBLEM_SIZE
-#define PROBLEM_SIZE (11)
+#define PROBLEM_SIZE (12)
 #endif /* PROBLEM_SIZE */
 
 #define MAX_NODES 12
