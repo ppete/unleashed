@@ -209,7 +209,7 @@ auto dp_calc(D* lhs, D* rhs, size_t len) -> D
 
   reduction_type res;
 
-  #pragma omp parallel shared(lhs, rhs, len)
+  #pragma omp parallel firstprivate(lhs, rhs, len)
   {
     red_product = red_lhs_sum_sq = red_rhs_sum_sq = 0;
 

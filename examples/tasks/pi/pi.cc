@@ -136,28 +136,6 @@ auto method(F f, D low, D step, size_t iter) -> D
   return trapezoidal(f, low, step, iter);
 }
 
-
-#if NOTASK
-
-static const size_t  STEPS      = 1982;
-
-template <class D, class F>
-auto integrate(F f, D low, D hi, D, size_t steps = STEPS) -> D
-{
-  D res  = 0.0;
-  D step = (hi-low) / steps;
-
-  #pragma omp parallel for reduction (+:res)
-  for (size_t i = 0; i < steps; ++i)
-  {
-    res += method(f, low, step, i);
-  }
-
-  return res;
-}
-
-#endif /* NOTASK */
-
 template <class D>
 struct integration_task
 {
@@ -169,20 +147,14 @@ struct integration_task
 
 #if OMP_VERSION
 
-static inline
-size_t thread_num()
-{
-  return omp_get_thread_num();
-}
+pi_type partialresult;
+#pragma omp threadprivate(partialresult)
 
 template <class F, class D>
-auto integrate_adaptive( F f, D eps, integration_task<D> task,
-                         uab::aligned_type<std::pair<D, size_t>, CACHELINESZ>* s
-                       ) -> void // std::pair<D, size_t>
+auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pair<D, size_t>
 {
   typedef integration_task<D> integration_task;
 
-  size_t thrnum = thread_num();
   D      dif;
   D      tol;
   D      a;
@@ -200,16 +172,14 @@ auto integrate_adaptive( F f, D eps, integration_task<D> task,
     if (dif >= tol)
     {
       #pragma omp task
-      integrate_adaptive(f, eps, integration_task{task.low,          halfstep, a1}, s);
-
-      ++s[thrnum].val.second;
+      integrate_adaptive(f, eps, integration_task{task.low, halfstep, a1});
 
       // run on same thread
       task = integration_task{task.low+halfstep, halfstep, a2};
     }
   } while (dif >= tol);
 
-  s[thrnum].val.first += a;
+  partialresult += a;
 
   //~ hist.add(task.low, task.step);
 }
@@ -220,43 +190,24 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 {
   omp_set_num_threads(NUMTHREADS);
 
-  uab::aligned_type<std::pair<D, size_t>, CACHELINESZ> s[NUMTHREADS];
   D                                                    step = hi-lo;
   D                                                    res  = D();
-  size_t                                               ctr  = 1;
 
-  #pragma omp parallel firstprivate(f, lo, hi, eps, step) shared(res,ctr,s)
+  #pragma omp parallel firstprivate(f, lo, hi, eps, step) shared(res)
   {
-    size_t thrnum = thread_num();
-
-    s[thrnum].val = std::pair<D, size_t>(D(), 0);
+    partialresult = D();
 
     #pragma omp single
+    #pragma omp taskgroup
     {
-      #pragma omp taskgroup
-      {
-        integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)}, s);
-      }
+      integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)});
     }
 
     #pragma omp atomic
-    res += s[thrnum].val.first;
-
-/*
-    #pragma omp atomic
-    ctr += s[thrnum].val.second;
-*/
+    res += partialresult;
   }
 
-  splits = ctr;
-
   //~ hist.print();
-
-#if PRINT_STATS
-  for (size_t i = 0; i < NUMTHREADS; ++i)
-    std::cout << i << ": " << s[i].val.second << std::endl;
-#endif
-
   return res;
 }
 #endif /* OMP_VERSION */
