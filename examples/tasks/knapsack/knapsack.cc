@@ -70,6 +70,9 @@ int compare(struct item *a, struct item *b)
      return 0;
 }
 
+template <class ... Args>
+void pseudo_use(Args ...) {}
+
 int read_input(const char *filename, struct item *items, int *capacity, int *n)
 {
      int i;
@@ -83,11 +86,16 @@ int read_input(const char *filename, struct item *items, int *capacity, int *n)
        exit(1);
      }
      /* format of the input: #items capacity value1 weight1 ... */
-     fscanf(f, "%d", n);
-     fscanf(f, "%d", capacity);
+     int err1 = fscanf(f, "%d", n);
+     int err2 = fscanf(f, "%d", capacity);
+
+     pseudo_use(err1, err2);
 
      for (i = 0; i < *n; ++i)
-       fscanf(f, "%d %d", &items[i].value, &items[i].weight);
+     {
+       int err3 = fscanf(f, "%d %d", &items[i].value, &items[i].weight);
+       pseudo_use(err3);
+     }
 
      fclose(f);
 
@@ -220,12 +228,22 @@ auto knapsack_par(knapsack_task task) -> void
 
     double ub = (double) task.v + task.c * task.e->value / task.e->weight;
 
+#if !defined(__GNUC__) || (__GNUC__ > 6)
     // prune if it is worse than the best available alternative
     if (ub < best_so_far.load(std::memory_order_relaxed))
     {
       // sum+= res;
       return;
     }
+#else
+    #pragma warning "inefficient use of C++ atomic variables in Cilk+ prior to gcc-7"
+    if (ub < best_so_far)
+    {
+      // sum+= res;
+      return;
+    }
+#endif
+
 
     /* compute the best solution without the current item in the knapsack */
     if ((!CUTOFF) || (task.n > CUTOFF)) 

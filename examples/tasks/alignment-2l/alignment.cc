@@ -803,7 +803,15 @@ auto distribute(DistributionTask work) -> void
 
     if ( n == 0 || m == 0 )
     {
+#if !defined(__GNUC__) || (__GNUC__ > 6)
       bench_output[si*nseqs+sj].store(1, std::memory_order_relaxed);
+#else
+      std::atomic<int>& val = bench_output[si*nseqs+sj];
+
+      #pragma warning "inefficient use of C++ atomic variables in Cilk+ prior to gcc-7"
+      val = 1;
+#endif
+
     }
     else
     {
