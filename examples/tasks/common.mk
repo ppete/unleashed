@@ -132,9 +132,33 @@ ifeq ($(INSTRSET),)
 
 	ifeq ($(SUCCESS),0)
     INSTRSET= -mcpu=native
+    $(info *** using $(THREADFLAG))
+  endif
+endif
+
+
+## 
+## auto set threading approach (sun c++ vs everyone else)
+ifeq ($(THREADFLAG),)
+        SUCCESS=$(shell $(CXX) -std=c++11 -O0 -pthread $(BLAZE_HOME)/examples/tasks/common/test-hello.cc -o $(BLAZE_HOME)/examples/tasks/common/test-hello.bin; echo $$?)
+
+        ifeq ($(SUCCESS),0)
+    THREADFLAG= -pthread
     $(info *** using $(INSTRSET))
   endif
 endif
+
+ifeq ($(THREADFLAG),)
+        SUCCESS=$(shell $(CXX) -std=c++11 -O0 -mt $(BLAZE_HOME)/examples/tasks/common/test-hello.cc -o $(BLAZE_HOME)/examples/tasks/common/test-hello.bin; echo $$?)
+
+        ifeq ($(SUCCESS),0)
+    THREADFLAG= -mt
+    $(info *** using $(THREADFLAG))
+  endif
+endif
+
+
+
 
 
 ##
@@ -177,7 +201,7 @@ default: $(TARGETS)
 CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic -O2 $(INSTRSET) -DNDEBUG=1 $(EXTRAFLAGS)
 
 $(OUTPUTDIR)/$(CODE)-blaze-$(COMP)$(BLZSUFFIX).bin: $(SOURCES) $(BLAZE_HOME)/include/tasks.hpp
-	$(CXX) $(CXXFLAGS) $(HTMFLAGS) -pthread -DBLAZE_VERSION=1 -I$(BLAZE_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
+	$(CXX) $(CXXFLAGS) $(HTMFLAGS) $(THREADFLAG) -DBLAZE_VERSION=1 -I$(BLAZE_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(OUTPUTDIR)/$(CODE)-omp-$(COMP)$(SUFFIX).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) -fopenmp -DOMP_VERSION=1 -I$(BLAZE_HOME)/include $(SOURCES) $(OMPLINKFLAGS) $(LINKATOMIC) -o $@
@@ -189,10 +213,10 @@ $(OUTPUTDIR)/$(CODE)-cilk-$(COMP)$(SUFFIX).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) -fcilkplus -lcilkrts -DCILK_VERSION=1 -I$(BLAZE_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(OUTPUTDIR)/$(CODE)-tbb-$(COMP)$(SUFFIX).bin: $(SOURCES)
-	$(CXX) $(CXXFLAGS) -pthread -DTBB_VERSION=1 -I$(BLAZE_HOME)/include -I$(TBB_HOME)/include $(SOURCES) -latomic -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $@
+	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DTBB_VERSION=1 -I$(BLAZE_HOME)/include -I$(TBB_HOME)/include $(SOURCES) -latomic -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $@
 
 $(OUTPUTDIR)/$(CODE)-qthreads-$(COMP)$(SUFFIX).bin: $(SOURCES)
-	$(CXX) $(CXXFLAGS) -pthread -DQTHREADS_VERSION=1 -I$(BLAZE_HOME)/include -I$(QTHREADS_HOME)/include $(SOURCES) $(LINKATOMIC) -L$(QTHREADS_HOME)/lib -lqthread -o $@
+	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DQTHREADS_VERSION=1 -I$(BLAZE_HOME)/include -I$(QTHREADS_HOME)/include $(SOURCES) $(LINKATOMIC) -L$(QTHREADS_HOME)/lib -lqthread -o $@
 
 
 clean:
