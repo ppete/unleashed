@@ -1,4 +1,31 @@
-/**
+
+/// \file    tasks.hpp
+/// \brief   Framework for featherweight tasks.
+/// \details Featherweight tasks are a portable yet effective prototype
+///          framework for task scheduling and task reductions on shared memory
+///          architectures. Featherweight tasks do not need their own stack
+///          since they are executed on a regular thread's stack. Tasks may
+///          spawn other tasks, or return a value contributing to a
+///          reduction operation across all tasks. Currently, tasks cannot
+///          wait for other tasks to be completed.
+///
+///          The framework has been designed with lock-free techniques and
+///          generic programming principles in mind. Clients may plug-in a
+///          variety of memory management techniques to customize the
+///          framework for the application context ( see pmemory.hpp ).
+///
+///          Although, the featherweight tasks cannot wait on the completion of
+///          other tasks, they can be applied in a variety of domains:
+///          - reductions across tasks
+///          - search space exploration
+///          - partitioning of an iteration space
+///
+///          uab::execute_tasks() offers an example that implements task-based
+///          computation of Fibonacci numbers.
+///          Other examples can be found under BLAZE_HOME/examples/tasks .
+/// \author  Peter Pirkelbauer ( pirkelbauer@uab.edu )
+
+/*
  * A simple, portable, and generic framework for reductions over tasks.
  *
  * Implementer: Peter Pirkelbauer (UAB) - 2018
@@ -82,6 +109,7 @@ namespace uab
   /// constant for block-size used in task pool
   static const size_t BLKSZ                = 1024;
 
+  /// \private
   /// \brief Data block in a FIFO queue implemented as list of blocks.
   ///        dataQ supports a single producer, multiple consumers
   ///        tail->block<-block<-block<-head
@@ -245,9 +273,9 @@ namespace uab
       uint_fast8_t attempts = tries;
 
       // \mo relaxed, b/c hd does not publish anything
-      size_t head = hd.val.load(std::memory_order_relaxed);
+      size_t       head = hd.val.load(std::memory_order_relaxed);
       // \mo acquire, b/c we read from data[i], where i < tl
-      size_t tail = tl.val.load(std::memory_order_acquire);
+      size_t       tail = tl.val.load(std::memory_order_acquire);
 
       // give up under high contention
       while (attempts > 0)
@@ -287,6 +315,7 @@ namespace uab
   };
 
 
+  /// \private
   /// Main FIFO queue, built upon dataQ blocks + status data for threads
   /// \tparam T task type
   /// \tparam Alloc the memory manager as defined in pmemory.hpp
@@ -506,13 +535,13 @@ namespace uab
     const uint_fast32_t                                  MAXTQ;
 
     /// the allocator/memory manager
-    node_alloc_type                               nodealloc;
+    node_alloc_type                                      nodealloc;
 
     /// counts active threads; when count reaches 0 all task have been handled
     uab::aligned_atomic_type<uint_fast32_t, CACHELINESZ> active;
 
     /// task specific queue handles
-    uab::aligned_atomic_type<tasq*, CACHELINESZ>  taskq[256]; // \todo remove magic constant
+    uab::aligned_atomic_type<tasq*, CACHELINESZ>         taskq[256]; // \todo remove magic constant
 
     /// thread id within pool
     static thread_local uint_fast32_t                    idx;
@@ -521,10 +550,10 @@ namespace uab
     static thread_local uint_fast32_t                    last_victim;
 
     /// this task queue
-    static thread_local tasq*                     tq_loc;
+    static thread_local tasq*                            tq_loc;
 
     /// last victim's task queue
-    static thread_local tasq*                     tq_rem;
+    static thread_local tasq*                            tq_rem;
 
     /// initializes pool and enqueues first task
     /// \param numthreads number of worker threads (and task queues)
@@ -687,7 +716,7 @@ namespace uab
           {
             uint_fast8_t tries = arch_model::num_tries(idx, thrid);
 #if 1 /* informed stealing */
-            size_t avail = victim->numtasks.val.load(std::memory_order_relaxed);
+            size_t        avail = victim->numtasks.val.load(std::memory_order_relaxed);
 
             if (avail * (SAMPLESIZE/2) > tasks_sum)
             {
@@ -751,13 +780,14 @@ namespace uab
   struct alignas(CACHELINESZ) threadstat
   {
     size_t num;        // number of tasks
-    size_t core_init; // core where thread began
+    size_t core_init;  // core where thread began
     size_t core_last;  // core where thread ended
   };
 
   static threadstat work[NUMTHREADS];
 #endif /* PRINT_STATS */
 
+  /// \private
   /// \brief  main task loop
   /// \tparam R result type
   /// \tparam P pool type
@@ -811,6 +841,7 @@ namespace uab
     tasks->qrelease_memory();
   }
 
+  /// \private
   /// \brief  spawns n threads sequentially
   /// \tparam R result type
   /// \tparam P pool type
@@ -837,6 +868,7 @@ namespace uab
     *res += sub;
   }
 
+  /// \private
   /// \brief  spawns threads; if the number exceeds a preset threshold
   ///         the thread spawns another spawning thread before spawning
   ///         half the threads.
@@ -906,21 +938,28 @@ namespace uab
   /// \details
   ///   example:
   /// \code
-  ///    struct fib {
+  ///    // fib functor
+  ///    struct fib
+  ///    {
+  ///      // The task operator spawns fib(n-2) and continues with fib(n-1).
+  ///      // The continuation-loop improves cache locality, and reduces
+  ///      // overhead associated with enqueing and dequeing tasks.
   ///      template <class Pool>
-  ///      int operator(Pool& p, int n) {
+  ///      int operator(Pool& p, int n)
+  ///      {
   ///        if (n <= 1) return n;
-  ///        while (--task > 1) {
-  ///          // push task-2
-  ///          p.enq(task-1);
+  ///        while (--n > 1)
+  ///        {
+  ///          // spawn fib(n-2)
+  ///          p.enq(n-1);
   ///
-  ///          // task-1 forms the continuation that runs on the same thread
+  ///          // continue with fib(n-1)
   ///        }
-  ///        return task;
+  ///        return 1; // reduced to base case
   ///      }
   ///    };
   ///
-  ///    int res = execute_tasks(20 /* threads */, fib(), 10 /* argument */);
+  ///    int res = execute_tasks(20 /* threads */, fib(), 10 /* argument to fib */);
   /// \endcode
   template <class F, class T>
   auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T>(0,task), task))

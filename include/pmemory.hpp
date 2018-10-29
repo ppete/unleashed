@@ -1,7 +1,4 @@
-#ifndef _PMEMORY_HPP
-
-#define _PMEMORY_HPP 1
-
+/// \file  pmemory.hpp
 /// \brief Memory managers for fine-grained lock based and lock-free data structures
 ///
 /// \details - just_alloc is an allocator that only allocates, but never frees memory.
@@ -22,66 +19,76 @@
 ///            allocator leads to early and HAZARDOUS memory deallocations.
 ///            To enable the gc_manager, either PMEMORY_GC_ENABLED needs to be defined
 ///            or Boehm's gc.h must be included before this file.
-/// \author  Nick Dzugan, Amalee Wilson, Peter Pirkelbauer
-/// \email   pirkelbauer @ uab.edu
+///
+///          The code below specifies the concept for memory managers.
+/// \code{.cpp}
+/// template <class T, class Alloc>
+/// concept memory_manager
+/// {
+///   // pins an atomic pointer and chooses a mo tag appropriate for the
+///   // memory managing technique; The actual memory order is at least as strong.
+///   template <std::memory_order mo = std::memory_order_seq_cst>
+///   _Tp* pin(std::atomic<_Tp*>& elem);
+///
+///   // pins an uab::MarkablePointer and chooses a mo tag appropriate for the
+///   //   memory managing technique; The actual memory order is at least as strong.
+///   template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
+///   typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+///   pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem);
+///
+///   // pins a non-atomic address (provided to simplify some algorithms)
+///   _Tp* pin_addr(_Tp& elem);
+///
+///   // releases the pointer, and guarantees that all reads/write from/to the
+///   //   protected memory have completed.
+///   // \details the second argument provides a "hint" to find locate
+///   //          the pointer.
+///   // \param   mem location whose guard is released
+///   // \param   hnt hint, how the location may be guarded
+///   void unpin(_Tp* mem, int hnt);
+///
+///   // releases all pinned pointers, and guarantees that all reads/write
+///   //   from/to the protected memory have completed.
+///   void unpin_all();
+///
+///   // begins an operation on shared data
+///   // \param sz maximum number of pointers that need to be guarded
+///   void beginop(size_t sz);
+///
+///   // begins an operation on shared data, w/o barrier
+///   //   used for release-only operations
+///   void beginop(size_t sz, unordered);
+///
+///   // ends an operation, and guarantees that all reads/write
+///   //   from/to the protected memory have completed.
+///   void endop();
+///
+///   // collects and releases non-referenced memory
+///   void release_memory();
+///
+///   // releases all memory held, under the assumption that the data structure
+///   //   is quiescent.
+///   void qrelease_memory();
+///
+///   // does the memory manager hold unreleased memory?
+///   // \details this should be a constant time operation
+///   bool has_unreleased_memory() const;
+///
+///   // returns an estimate of unreleased nodes, if available
+///   // \details this may not be a constant time operation
+///   size_t count_unreleased_memory() const;
+/// };
+/// \endcode
+///
+/// \author
+///    Nick Dzugan,
+///    Amalee Wilson,
+///    Peter Pirkelbauer ( pirkelbauer@uab.edu )
 
-#if DOCUMENTATION_ONLY
+#ifndef _PMEMORY_HPP
 
-template <class T, class Alloc>
-concept memory_manager
-{
-  /// pins an atomic pointer and chooses a mo tag appropriate for the
-  ///   memory managing technique; actual_mo >= mo
-  template <std::memory_order mo = std::memory_order_seq_cst>
-  _Tp* pin(std::atomic<_Tp*>& elem);
+#define _PMEMORY_HPP 1
 
-  /// pins an uab::MarkablePointer and chooses a mo tag appropriate for the
-  ///   memory managing technique; actual_mo >= mo
-  template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-  typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-  pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem);
-
-  /// pins a non-atomic address (provided to simplify some algorithms)
-  _Tp* pin_addr(_Tp& elem);
-
-  /// releases the pointer
-  /// \details the second argument provides a "hint" to find locate
-  ///          the pointer.
-  /// \param   mem location whose guard is released
-  /// \param   hnt hint, how the location may be guarded
-  void unpin(_Tp* mem, int hnt);
-
-  /// releases all pinned pointers
-  void unpin_all();
-
-  /// begins an operation on shared data
-  /// \param sz maximum number of pointers that need to be guarded
-  void beginop(size_t sz);
-
-  /// begins an operation on shared data, w/o barrier
-  ///   used for release-only operations
-  void beginrel(size_t sz, unordered);
-
-  /// ends an operation
-  void endop();
-
-  /// collects and releases non-referenced memory
-  void release_memory();
-
-  /// releases all memory held, under the assumption that the data structure
-  ///   is quiescent.
-  void qrelease_memory();
-
-  /// does the memory manager hold unreleased memory?
-  /// \details this should be a constant time operation
-  bool has_unreleased_memory() const;
-
-  /// returns an estimate of unreleased nodes, if available
-  /// \details this may not be a constant time operation
-  size_t count_unreleased_memory() const;
-};
-
-#endif /* DOCUMENTATION_ONLY */
 
 
 #if defined(GC_H)
@@ -104,11 +111,10 @@ concept memory_manager
 
 #ifndef BLAZE_GC_CXX11_THREAD_CONTEXT
 #define BLAZE_GC_CXX11_THREAD_CONTEXT
+namespace {
   /// \brief If GC is enabled and gc-cxx11/gc_cxx11.hpp was included
   ///        gc_cxx_thread_context is defined there.
   ///        Otherwise this introduces a dummy declaration.
-namespace
-{
   /// \brief dummy thread context when the GC is not used
   struct gc_cxx_thread_context
   {
@@ -123,24 +129,34 @@ namespace
 }
 #endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
 
-
+/// lockfree code, though not necessarily nonblocking.
 namespace lockfree
 {
   //
   // memory manager tags
+
+  /// tags memory managers that protect allocation blocks
   struct finegrain {};
+
+  /// tags memory managers that protect an operation
   struct operation {};
+
+  /// tags memory managers that collect memory (e.g., gc_manager and arena)
   struct collected {};
 
-  //
-  //
-  struct unordered {};
-
-  template <template <typename> class _Alloc, class _Tp>
-  struct rebinder
+  /// \brief compares allocator tag with a given kind
+  /// \tparam T the desired kind
+  /// \tparam U the actual kind
+  template <class T, class U>
+  static inline
+  bool is_alloc_kind(U)
   {
-    typedef typename _Alloc<_Tp>::template rebind<_Tp> type;
-  };
+    return std::is_same<T, U>::value;
+  }
+
+  /// \private
+  /// auxiliary tag
+  struct unordered {};
 
   static const bool FREE_ALWAYS = false; ///< indicates whether the threads should be scanned after
                                          ///  each pointer deallocation.
@@ -192,6 +208,7 @@ namespace lockfree
   //
   // auxiliary methods accessing atomic pointers
 
+  /// \private
   template <std::memory_order mo, class _Tp>
   static inline
   _Tp* _ld(std::atomic<_Tp*>& elem)
@@ -199,6 +216,7 @@ namespace lockfree
     return elem.load(mo);
   }
 
+  /// \private
   template <std::memory_order mo, class _Tp, size_t MARKABLE_BITS>
   static inline
   typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
@@ -208,6 +226,7 @@ namespace lockfree
     return elem.state(mo);
   }
 
+  /// \private
   template <class _Tp>
   static inline
   _Tp* _ptr(_Tp* ptr)
@@ -215,6 +234,7 @@ namespace lockfree
     return ptr;
   }
 
+  /// \private
   template <class _Tp, class _MARKTYPE>
   static inline
   // _Tp* _ptr(typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
@@ -226,6 +246,7 @@ namespace lockfree
   //
   // lock-free allocator
 
+  /// \private
   /// base class that factors out interfacing with standard allocators
   template <class _Tp, template <class> class _Alloc>
   struct alloc_base
@@ -300,6 +321,7 @@ namespace lockfree
       _Alloc<_Tp>              alloc;
   };
 
+  /// \private
   /// \brief   empty implementation of pin/unpin
   /// \details auxiliary base class for allocators that do not use pin/unpin
   template <class _Tp>
@@ -354,6 +376,7 @@ namespace lockfree
   //
   // auxiliary classes
 
+  /// \private
   template <class _Alloc>
   struct Deallocator
   {
@@ -373,6 +396,7 @@ namespace lockfree
     }
   };
 
+  /// \private
   template <class _Alloc>
   Deallocator<_Alloc> deallocator(_Alloc alloc)
   {
@@ -395,7 +419,8 @@ namespace lockfree
       typedef guardless  pinguard;
       typedef collected  manager_kind;
 
-      // rebind to self
+      /// \private
+      /// rebind to self
       template <class U>
       struct rebind { typedef just_alloc<U, _Alloc> other; };
 
@@ -422,7 +447,8 @@ namespace lockfree
   };
 
 
-  /// \brief allocator stores delays freeing unt
+  /// \brief allocator stores pointers to memory until they can be freed
+  ///        in a quiescent period.
   template <class _Tp, template <class> class _Alloc = std::allocator>
   struct arena : no_pinwall_base<_Tp>, alloc_base<_Tp, _Alloc>
   {
@@ -436,7 +462,8 @@ namespace lockfree
       typedef guardless  pinguard;
       typedef collected  manager_kind;
 
-      // rebind to self
+      /// \private
+      /// rebind to self
       template <class U>
       struct rebind { typedef just_alloc<U, _Alloc> other; };
 
@@ -483,7 +510,8 @@ namespace lockfree
 
 
 #ifdef PMEMORY_GC_ENABLED
-  /// \brief simple
+  /// \brief memory manager that defers memory reclamation to a
+  ///        garbage collector.
   template <class _Tp, template <class> class _Alloc>
   struct gc_manager : no_pinwall_base<_Tp>, alloc_base<_Tp, _Alloc>
   {
@@ -495,7 +523,8 @@ namespace lockfree
       typedef collected manager_kind;
       typedef guardless pinguard;
 
-      // rebind to self
+      /// \private
+      /// rebind to self
       template <class U>
       struct rebind { typedef gc_manager<U, _Alloc> other; };
 
@@ -521,6 +550,7 @@ namespace lockfree
       void deallocate(_Tp*, int) {}
   };
 
+  /// thread context, if GC is enabled
   struct gc_cxx_thread_context
   {
     GC_stack_base sb;
@@ -541,6 +571,7 @@ namespace lockfree
   //
   // Auxiliary lock-free stack implementation
 
+  /// \private
   template <class _Tp, class _Alloc>
   struct pub_scan_data
   {
@@ -688,7 +719,7 @@ namespace lockfree
       }
   };
 
-
+  /// \private
   /// \brief Iterator that goes through a hazard pointer data stack
   template <class _ScanData>
   struct scan_iterator : std::iterator<std::forward_iterator_tag, const _ScanData>
@@ -743,6 +774,7 @@ namespace lockfree
     const _ScanData* pos;
   };
 
+  /// \private
   /// \brief Hazard Pointer Collector
   template <class T, class _Alloc>
   struct pub_scan_scanner
@@ -791,6 +823,7 @@ namespace lockfree
     }
   };
 
+  /// \private
   /// \brief convenience function to create Hazard Pointer Collectors
   template <class T, class _Alloc>
   pub_scan_scanner<T, _Alloc> pubScanScanner(size_t sz, size_t maxPtrs)
@@ -798,6 +831,7 @@ namespace lockfree
     return pub_scan_scanner<T, _Alloc>(sz, maxPtrs);
   }
 
+  /// \private
   /// \brief   functor testing whether a ptr is NOT in a less-than sorted
   ///          sequence of pointers
   /// \details the ptr pointers also need to be supplied in a less-than
@@ -823,12 +857,14 @@ namespace lockfree
     }
   };
 
+  /// \private
   template <template <class, class> class _Cont, class _Tp, class _Alloc>
   Pinned<_Tp, _Alloc> pinned(_Cont<_Tp*, _Alloc> const & cont)
   {
     return Pinned<_Tp, _Alloc>(cont);
   }
 
+  /// \private
   static inline
   size_t threshold(size_t len)
   {
@@ -836,9 +872,10 @@ namespace lockfree
   }
 
   /// \brief   Allocator implementing a publish and scan memory manager
+  ///          (aka Hazard pointers).
   /// \warning This publish and scan implementation is not reentrant
   /// \note    The current implementation is unsuitable for programming styles
-  ///          that frequently create new threads
+  ///          that frequently create new threads.
   template <class _Tp, template <class> class _Alloc = std::allocator>
   struct pub_scan_manager : alloc_base<_Tp, _Alloc>
   {
@@ -859,6 +896,7 @@ namespace lockfree
       typedef finegrain                 manager_kind;
       typedef typename base::value_type value_type;
 
+      /// \private
       template <class U>
       struct rebind { typedef pub_scan_manager<U, _Alloc> other; };
 
@@ -1060,20 +1098,6 @@ namespace lockfree
         pinWall->endop();
       }
 
-      /// node cleanup invokes a specified cleanup function
-      ///   to clean up a node that can be freed.
-      ///   In non GCed environments links to next nodes need to be set to null,
-      ///   otherwise some delayed thread may access the next element, which
-      ///   may have been freed previously, since the next element is in noone's
-      ///   published list.
-      ///   T0: removes N0 (predecessor of N1)
-      ///   T1: removes N1 and frees N1 (it is on no published list)
-      ///   T2: holds a ref to N0 and pins N1 ... oops
-      //~ void node_cleanup(void (cleanupfun) (value_type&), value_type& n)
-      //~ {
-        //~ cleanupfun(n);
-      //~ }
-
     private:
       /// creates new storage for a Thread, unless the
       typedef std::atomic<pub_scan_data<value_type, _Alloc<_Tp> >*> pinwall_entry;
@@ -1082,10 +1106,12 @@ namespace lockfree
       static thread_local pub_scan_data<value_type, _Alloc<_Tp> >*  pinWall;
   };
 
+  /// \private
   template <class _Tp, template <class> class _Alloc>
   typename pub_scan_manager<_Tp, _Alloc>::pinwall_entry
   pub_scan_manager<_Tp, _Alloc>::allPinWalls(nullptr);
 
+  /// \private
   template <class _Tp, template <class> class _Alloc>
   thread_local
   pub_scan_data<typename pub_scan_manager<_Tp, _Alloc>::value_type, _Alloc<_Tp> >*
@@ -1094,21 +1120,29 @@ namespace lockfree
   //
   // epoch management scheme
 
-  template <class _Tp, class _Alloc>
+  /// \private
+  /// \brief stores pointers collected at a given epoch
+  template <class _T, class _Alloc>
   struct release_entry
   {
-    typedef std::vector<size_t, _Alloc> epoch_vector;
+    // rebind alloc to release entry types
+    typedef typename _Alloc::template rebind<size_t>::other size_t_alloc;
+    typedef typename _Alloc::template rebind<_T*>::other    tp_alloc;
+    typedef std::vector<size_t, size_t_alloc>               epoch_vector;
+    typedef std::vector<_T*, tp_alloc>                      epoch_ptr_vector;
 
-    epoch_vector              epochtime;
-    std::vector<_Tp*, _Alloc> epochptrs;
+    epoch_vector     epochtime;
+    epoch_ptr_vector epochptrs;
 
-    void swap(release_entry<_Tp, _Alloc>& other)
+    void swap(release_entry<_T, _Alloc>& other)
     {
       epochtime.swap(other.epochtime);
       epochptrs.swap(other.epochptrs);
     }
   };
 
+  /// \private
+  /// \brief stores all collected epochs until they can be freed
   template <class _Tp, class _Alloc>
   struct epoch_data
   {
@@ -1133,7 +1167,8 @@ namespace lockfree
     }
   };
 
-
+  /// \private
+  /// test whether an epoch counter indicates activity
   static inline
   bool active(size_t epoch)
   {
@@ -1141,6 +1176,8 @@ namespace lockfree
   }
 
 
+  /// \private
+  /// \brief finds the epochs that can be reclaimed
   template <class _Tp, class _Alloc>
   struct passed_epoch_finder
   {
@@ -1172,6 +1209,7 @@ namespace lockfree
   };
 
 
+  /// \private
   template <class _FwdIter, class _UnaryPred>
   _FwdIter fwd_find(_FwdIter before_aa, _FwdIter zz, _UnaryPred pred)
   {
@@ -1189,6 +1227,7 @@ namespace lockfree
   }
 
 
+  /// \private
   template <class _Alloc>
   struct epoch_deallocator
   {
@@ -1214,6 +1253,7 @@ namespace lockfree
      }
   };
 
+  /// \private
   template <class _Alloc>
   epoch_deallocator<_Alloc> epochDeallocator(_Alloc alloc)
   {
@@ -1246,6 +1286,7 @@ namespace lockfree
       /// no pinwall
       typedef guard<epoch_manager<value_type, _Alloc> > pinguard;
 
+      /// \private
       /// rebind to self
       template <class U>
       struct rebind { typedef epoch_manager<U, _Alloc> other; };

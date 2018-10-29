@@ -1,9 +1,10 @@
+/// \file   atomicutil.hpp
+/// \brief  File providing various atomic utility classes (e.g., MarkablePointer)
+/// \author Peter Pirkelbauer ( pirkelbauer@uab.edu )
+
 #ifndef _ATOMICUTIL_HPP
 #define _ATOMICUTIL_HPP
 
-/// File providing various atomic utility functions and classes
-/// \author Peter Pirkelbauer
-/// \email  pirkelbauer@uab.edu
 
 #include <atomic>
 #include <cassert>
@@ -18,11 +19,13 @@
 
 namespace uab
 {
+  /// \brief creates a type aligned to ALIGNSZ boundaries
+  /// \pre   ALIGNSZ >= sizeof(T)
   template <class T, size_t ALIGNSZ>
   struct aligned_type
   {
     static_assert(ALIGNSZ >= sizeof(T), "alignment/size mismatch");
-    
+
     T              val;
     char           x[ALIGNSZ-sizeof(T)];
 
@@ -35,6 +38,8 @@ namespace uab
     {}
   };
 
+  /// \brief creates an atomic type aligned to ALIGNSZ boundaries
+  /// \pre   ALIGNSZ >= sizeof(T)
   template <class T, size_t ALIGNSZ>
   struct aligned_atomic_type
   {
@@ -53,7 +58,9 @@ namespace uab
   };
 
 
-  /// Class providing similar functionality to Java's AtomicMarkableReference
+  /// \brief Pointers that use MARKABLE_BITS bits for marking
+  ///        e.g., delete marks in lock-free linked-lists/skip-lists
+  /// \details the functionality is similar to Java's AtomicMarkableReference
   /// \tparam T underlying type; class represents markable T*
   /// \tparam MARKABLE_BITS number of expected markable bits
   template <class T, size_t MARKABLE_BITS = 1>

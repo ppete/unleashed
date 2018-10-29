@@ -1,3 +1,4 @@
+/// \file htm-memory.hpp
 /// \brief Memory managers for data structures relying on HTM
 ///
 /// \details - just_alloc is an allocator that only allocates, but never frees memory.
@@ -6,11 +7,9 @@
 ///            and Herlihy et al.'s repeated offender implementation.
 ///          - ref_counter is reference counting scheme for HTM
 ///          - epoch_manager is a coarse grain scheme that HTM makes non-blocking
-/// \author  Peter Pirkelbauer
-/// \email   pirkelbauer @ uab.edu
+/// \author  Peter Pirkelbauer (pirkelbauer@uab.edu)
 
 #ifndef _HTMMEMORY_HPP
-
 #define _HTMMEMORY_HPP 1
 
 #if defined(GC_H)

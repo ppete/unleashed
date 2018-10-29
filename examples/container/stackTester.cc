@@ -4,15 +4,17 @@
 #include <thread>
 #include <functional>
 #include <list>
+#include <mutex>
 
-#ifndef WITHOUT_GC
+#ifdef WITH_GC
   #define GC_THREADS 1
   #define GC_DEBUG 1
   #include <gc/gc.h>
 
   #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
-#endif /* WITHOUT_GC */
+#endif /* WITH_GC */
 
+#include "locks.hpp"
 #include "stack.hpp"
 
 
@@ -24,25 +26,58 @@ namespace fg = locking;
 
 #if defined TEST_NO_MANAGER
 
+#define TEST_LOCKFREE_STACK 1
+
 template <class T>
 using default_alloc = lf::just_alloc<T>;
 
 #elif defined TEST_GC_MANAGER
+
+#define TEST_LOCKFREE_STACK 1
 
 template <class T>
 using default_alloc = lf::gc_manager<T, gc_allocator_cxx11>;
 
 #elif defined TEST_EPOCH_MANAGER
 
+#define TEST_LOCKFREE_STACK 1
+
 template <class T>
 using default_alloc = lf::epoch_manager<T>;
 
 #elif defined TEST_PUB_SCAN_MANAGER
 
+#define TEST_LOCKFREE_STACK 1
+
 template <class T>
 using default_alloc = lf::pub_scan_manager<T>;
 
-#elif !defined TEST_LOCKING_STACK /* undefined MANAGER */
+#elif defined TEST_STD_LOCKGUARD
+
+template <class M>
+using default_lock_guard = std::lock_guard<M>;
+
+typedef std::mutex           default_mutex;
+
+#elif defined TEST_UAB_LOCKGUARD
+
+template <class M>
+using default_lock_guard = uab::lockable_guard<M>;
+
+typedef uab::ttas_lock       default_mutex;
+
+#elif defined TEST_UAB_ELIDEGUARD
+
+#ifndef HTM_ENABLED
+#error "HTM_ENABLED not set for uab::elide_guard"
+#endif
+
+template <class M>
+using default_lock_guard = uab::elidable_guard<M>;
+
+typedef uab::ttas_lock       default_mutex;
+
+#else
 
   #error "preprocessor define for memory manager is needed (TEST_JUST_ALLOC, TEST_GC_MANAGER, TEST_EPOCH_MANAGER, TEST_PUB_SCAN_MANAGER)"
 
@@ -57,12 +92,10 @@ using default_alloc = lf::pub_scan_manager<T>;
 template <class T>
 using stack = lf::stack<T, default_alloc<T> >;
 
-#elif defined TEST_LOCKING_STACK
-template <class T>
-using stack = fg::stack<T>;
-
 #else
- #error "preprocessor define for container class is needed (TEST_LOCKING_STACK, TEST_LOCKFREE_STACK)"
+
+template <class T>
+using stack = fg::stack<T, default_mutex, default_lock_guard>;
 
 #endif
 
@@ -160,11 +193,11 @@ size_t asNum(const T& t)
 
 int main(int argc, char** args)
 {
-#ifndef WITHOUT_GC
+#ifdef WITH_GC
   GC_INIT();
   GC_allow_register_threads();
   // GC_find_leak = 1;
-#endif /* WITHOUT_GC */
+#endif /* WITH_GC */
 
   size_t pnoiter = 4000000;
   size_t num_threads = 6;

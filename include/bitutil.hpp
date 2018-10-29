@@ -1,10 +1,9 @@
 
-///
-/// \file bitutilez.hpp
+/// \file bitutil.hpp
 /// \brief This file provides a collections of functions to perform
 ///        bit level manipulations of integers.
 ///
-/// email: pirkelbauer@uab.edu (Peter Pirkelbauer)
+/// \author pirkelbauer@uab.edu (Peter Pirkelbauer)
 
 #ifndef _BITUTIL_HPP_
 #define _BITUTIL_HPP_
@@ -37,7 +36,7 @@ namespace uab
 
 #else
 
-#warning "Unsupported Compiler (tested on MVC++, G++)"
+#warning "Unsupported Compiler (tested on MVC++, g++, clang++, icc)"
 
   /// \brief  bit-scan-right: returns the number of the highest bit set in an integer
   /// \param  bnr size_t a non-zero integer value

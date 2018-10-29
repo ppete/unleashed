@@ -1,16 +1,15 @@
-/// \todo insert license
-
 /// \file htm-skiplist.hpp
-/// \author Created by Peter Pirkelbauer
+/// \author Peter Pirkelbauer (pirkelbauer@uab.edu)
 ///
-/// \brief Loosely based on Herlihy and Shavit's fine grained locking skiplist implementation.
-///        The Art of Multiprocessor Programming, 2012
-///        The skiplist uses exclusively transactions to query and update the skiplist.
-///        The implementation is lock-free; Any ongoing skiplist implementation
-///        can be obstructed by a concurrently executing transaction.
+/// \brief A transactional skiplist that can be customized using various
+///        memory management techniques for HTM (see htm-memory.hpp ).
+/// \details The implementation is loosely based on Herlihy and Shavit's fine
+///          grained locking skiplist implementation. The Art of Multiprocessor Programming, 2012
+///          The skiplist uses exclusively transactions to query and update the skiplist.
+///          The implementation is lock-free; Any ongoing skiplist operation
+///          may be obstructed by a concurrently executing transaction.
 
 #ifndef _HTMSKIPLIST_HPP
-
 #define _HTMSKIPLIST_HPP 1
 
 #include <memory>

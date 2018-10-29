@@ -1,16 +1,15 @@
-/// \todo insert license
-
 /// \file   skiplist.hpp
-/// \author Created by Nick Dzugan
+/// \author Nick Dzugan, Peter Pirkelbauer
 ///
-/// \brief  Based on Herlihy and Shavit: The Art of Multiprocessor Programming, 2012
-///         fine grained skiplist implementation.
-///         The file provides multiple skiplist version in different namespaces.
-///         namespace locking: fine-grained lock based skiplist
-///         namespace lockfree: lock-free lock based skiplist
+/// \brief  Lock-free and finegrain-locking skiplist implementations.
+/// \details
+///         - namespace locking: fine-grained locking skiplist
+///         - namespace lockfree: lock-free skiplist
+///
+///         The implementations are based on Herlihy and Shavit: The Art of
+///         Multiprocessor Programming, 2012.
 
 #ifndef _SKIPLIST_HPP
-
 #define _SKIPLIST_HPP 1
 
 #include <memory>
@@ -24,10 +23,13 @@
 #include "pmemory.hpp"
 #include "bitutil.hpp"
 
+/// \private
 namespace aux
 {
+  /// \private
   thread_local std::ranlux48 rnd(time(0));
 
+  /// \private
   static inline
   int bsr32(uint32_t s)
   {
@@ -39,12 +41,14 @@ namespace aux
     return nobits - __builtin_clz(s);
   }
 
+  /// \private
   constexpr
   size_t _next_power2(size_t N, size_t X)
   {
     return (X > 16) ? N : _next_power2(N | (N >> X), X << 1);
   }
 
+  /// \private
   constexpr
   size_t next_power2(size_t N)
   {
@@ -64,6 +68,7 @@ namespace aux
   }
 */
 
+  /// \private
   template <size_t M>
   static inline
   size_t log_rand()
@@ -75,6 +80,7 @@ namespace aux
     return (r < M) ? r : log_rand<M>();
   }
 
+  /// \private
   template <class _NodeTp>
   class skiplist_iterator : std::iterator< std::forward_iterator_tag, typename _NodeTp::value_type>
   {
@@ -92,13 +98,16 @@ namespace aux
       : skipNode(node)
       {}
 
+      /// \private
       template <class U>
       friend
       bool operator==(const skiplist_iterator<U>& lhs, const skiplist_iterator<U>& rhs);
 
+      /// \private
       template <class U>
       friend
       bool operator!=(const skiplist_iterator<U>& lhs, const skiplist_iterator<U>& rhs);
+
       reference operator*() const;
       skiplist_iterator<_NodeTp>& operator++();
       skiplist_iterator<_NodeTp>  operator++(int);
@@ -107,12 +116,14 @@ namespace aux
       _NodeTp* skipNode;
   };
 
+  /// \private
   template <class T>
   bool operator==(const skiplist_iterator<T>& lhs, const skiplist_iterator<T>& rhs)
   {
     return (lhs.skipNode == rhs.skipNode);
   }
 
+  /// \private
   template <class T>
   bool operator!=(const skiplist_iterator<T>& lhs, const skiplist_iterator<T>& rhs)
   {
@@ -144,6 +155,7 @@ namespace aux
 
 namespace locking
 {
+  /// \private
   template <class T, class _Alloc>
   class skiplist_node
   {
@@ -340,6 +352,7 @@ namespace locking
   };
 
 
+  /// \private
   template <int MAX, class _NodeType>
   static
   void unlockLevels(std::array<_NodeType*, MAX>& preds, int lb, int ub)
@@ -687,7 +700,9 @@ namespace locking
   }
 } // namespace locking
 
-namespace lockfree {
+namespace lockfree
+{
+  /// \private
   template <class _Tp, class _Alloc>
   class skiplist_node
   {
@@ -725,7 +740,8 @@ namespace lockfree {
       size_t levels() const { return num_levels; }
   };
 
-  /// skiplist implementation
+  /// \brief a lock-free skiplist. Depending on the memory manager,
+  ///        the skiplist may also be nonblocking.
   /// \tparam _Tp element type
   /// \tparam _Compare less-than operation
   /// \tparam _Alloc allocator;

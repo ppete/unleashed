@@ -1,3 +1,18 @@
+/// \file  stack.hpp
+/// \brief Lock-free and lock-based stacks using linked lists as internal
+///        representation.
+/// \details
+///        The implementation(s) rely on C++11.
+///        - The lock-free stacks can be customized with memory managers ( see pmemory.hpp ).
+///        - The lock-based stack can be customized with lock-type and guard types,
+///          for example to elide the lock in the presence of hardware transactional
+///          memory (requires HTM_ENABLED be set to 1).
+/// \author Peter Pirkelbauer (pirkelbauer@uab.edu)
+
+
+#ifndef _UAB_STACK_HPP
+#define _UAB_STACK_HPP 1
+
 #include <atomic>
 #include <mutex>
 #include <utility>
@@ -5,8 +20,10 @@
 
 #include "pmemory.hpp"
 
+/// \private
 namespace aux
 {
+  /// \private
   template <class T>
   struct stack_elem
   {
@@ -32,6 +49,9 @@ namespace aux
 
 namespace lockfree
 {
+
+  /// \private
+  /// simple ptr deleter, that uses the provided allocator to release memory.
   template <class _Alloc>
   struct ptr_guard
   {
@@ -48,6 +68,10 @@ namespace lockfree
     typename _Alloc::value_type* const e;
   };
 
+  /// \brief   Lock-free stack (Treiber) implementation for the relaxed memory model
+  /// \details The stack is parametrized with available memory managers
+  /// \tparam  _Tp the stack's value type
+  /// \tparam  _Alloc the used memory manager (see pmemory.hpp )
   template < class _Tp,
              class _Alloc = lockfree::pub_scan_manager<_Tp, std::allocator>
            >
@@ -63,11 +87,13 @@ namespace lockfree
       typedef typename _Node_alloc_type::pinguard                           PinGuard;
       typedef _Alloc                                                        allocator_type;
 
+      /// \brief constructs an empty stack with a given memory manager
       explicit
       stack(const allocator_type& alloc = allocator_type())
       : top(nullptr), nodeAlloc(alloc)
       {}
 
+      /// \brief pushes a new element onto the stack
       void push(const _Tp& e)
       {
         _Node_alloc_type alloc   = get_allocator();
@@ -79,7 +105,7 @@ namespace lockfree
 
         PinGuard         guard(alloc, 1);
 
-        // \mot
+        // \mo
         // *1 Consume pin makes all stack updates made through the top
         //    visible to this thread.
         // *2 A successful c&e is a release operation (publish data)
@@ -104,6 +130,9 @@ namespace lockfree
         }
       }
 
+      /// \brief pops an element from the stack
+      /// \return a pair<_Tp, bool> where the flag indicates whether pop
+      ///         was successful. If unsuccessful, first is default initialized.
       std::pair<_Tp, bool> pop()
       {
         stack_elem*      nexttop = nullptr;
@@ -112,7 +141,7 @@ namespace lockfree
         _Node_alloc_type alloc   = get_allocator();
         PinGuard         guard(alloc, 1);
 
-        // \mot
+        // \mo
         // *1 Consume pin makes all stack updates made through the top
         //    visible to this thread. The read of the currtop's next pointer
         //    relies on the consume fence.
@@ -143,7 +172,9 @@ namespace lockfree
         return std::make_pair(std::move(currtop->elem()), true);
       }
 
-      _Node_alloc_type get_allocator() const { return nodeAlloc; }
+      /// \brief returns a copy of the allocator in use
+      _Node_alloc_type
+      get_allocator() const { return nodeAlloc; }
 
     private:
       std::atomic<stack_elem*> top;
@@ -153,34 +184,58 @@ namespace lockfree
 
 namespace locking
 {
-  template <class T>
+  /// \brief  a simple, lock-protected, linked-list based stack
+  /// \tparam _Tp the stack's value type
+  /// \tparam _M the used mutex class,
+  /// \tparam _G the guard used, common options include std::lock_guard,
+  ///            uab::lockable_guard, uab::elidable_guard. The chosen guard
+  ///            needs to be compatible with the mutex interface.
+  /// \details the stack uses new and delete to allocate its nodes.
+  /// \todo    replace new/delete with allocators
+  template <class _T, class _M = std::mutex, template <class> class _G = std::lock_guard>
   struct stack
   {
-      typedef aux::stack_elem<T>     stack_elem;
-      typedef std::mutex             mutex;
-      typedef std::lock_guard<mutex> lock_guard;
+      typedef aux::stack_elem<_T> stack_elem;
+      typedef _T                  value_type;
+      typedef _M                  mutex;
+      typedef _G<mutex>           lock_guard;
 
+      /// \brief creates an empty stack
       stack()
       : m(), top(nullptr)
       {}
 
-      void push(const T& e)
+      /// \brief pushes a new element on to the stack
+      void push(const value_type& e)
       {
-        lock_guard  guard(m);
-        stack_elem* currtop = top;
+        stack_elem* el = new stack_elem(e, nullptr);
 
-        top = new stack_elem(e, currtop);
+        {
+          lock_guard guard(m);
+
+          el->set_next(top);
+          top = el;
+        }
       }
 
-      std::pair<T, bool> pop()
+      /// \brief pops an element from the stack
+      /// \return a pair<_Tp, bool> where the flag indicates whether pop
+      ///         was successful. If unsuccessful, first is default initialized.
+      std::pair<value_type, bool> pop()
       {
-        lock_guard                  guard(m);
-        std::unique_ptr<stack_elem> currtop(top);
+        stack_elem* el = nullptr;
 
-        if (currtop == nullptr) return std::make_pair(T(), false);
+        {
+          lock_guard guard(m);
+          el = top;
 
-        top = currtop->next();
-        return std::make_pair(currtop->elem(), true);
+          if (el == nullptr) return std::make_pair(value_type(), false);
+          top = el->next();
+        }
+
+        std::unique_ptr<stack_elem> oldptr(el);
+
+        return std::make_pair(std::move(el->elem()), true);
       }
 
     private:
@@ -188,3 +243,5 @@ namespace locking
       stack_elem* top;
   };
 }
+
+#endif /* _UAB_STACK_HPP */

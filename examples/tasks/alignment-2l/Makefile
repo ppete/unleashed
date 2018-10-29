@@ -9,4 +9,5 @@ QTHREADS_ENABLED=0
 # source files
 SOURCES=alignment.cc
 
+## include ../discover-flags.mk
 include ../common.mk

@@ -1,14 +1,49 @@
+/// \file locks.hpp
+/// \brief File provides (various) spinlock implementation(s) in C++11
+///        and methods to elide them in the presence of hardware transactional
+///        memory (requires HTM_ENABLED be set to 1).
+/// \todo  separate some classes that need to hold data into header and
+///        implementation file.
+/// \author Amalee Wilson, Peter Pirkelbauer (pirkelbauer@uab.edu)
+///
+/// To seamlessly interact with systems that support transactional memory,
+/// we introduce the Elidable concept. Elidable is similar to
+/// std::mutex, adds is_free(), but makes try_lock optional.
+/// is_free is used by elided_lock and elidable_guard to test whether the
+///   execution context is transactional.
+/// try_lock is optional b/c some locking techniques are unable to support it.
+///
+/// \code{.cpp}
+/// concept Elidable
+/// {
+///   /// no argument constructor
+///   Elidable();
+///
+///   /// OPTIONAL: attempts to acquire lock once
+///   /// \return true if successful, false otherwise
+///   bool try_lock();
+///
+///   /// blocks until the lock is acquired (acquire semantics)
+///   void lock();
+///
+///   /// unlocks the lock (release semantics)
+///   void unlock();
+///
+///   /// tests whether the lock is taken. Used to test whether code after
+///   ///   lock acquisition runs in transactional context.
+///   bool is_free();
+/// }
+/// \endcode
+
 #ifndef _UAB_LOCKS_HPP
 #define _UAB_LOCKS_HPP
-
-/// File providing (various) lock implementation(s) in C++11
-/// \author Peter Pirkelbauer
-/// \email  pirkelbauer@uab.edu
 
 #include <atomic>
 #include <random>
 
+#if !defined(_WIN32)
 #include <time.h>
+#endif /* !defined(_WIN32) */
 
 #include "atomicutil.hpp"
 
@@ -16,145 +51,204 @@
 #include "htm.hpp"
 #endif /* HTM_ENABLED */
 
+/*
 #if defined(__x86_64__)
-
 #include "xmmintrin.h"
 
+/// \private
 static inline
-void x86pause()
-{
-  _mm_pause();
-}
-
+void pausenow() { _mm_pause(); }
 
 #else
 
+/// \private
 static inline
-void x86pause() {}
+void pausenow() {}
 
 #endif
+*/
+
+#ifndef ENABLE_UNSAFE_LOCK_IMPLS
+/// unsafe locks can be enabled for experimental purposes, but they
+///   fail in scenarios where locks need to be nested.
+/// \todo eliminate the use of thread_local storage
+#define ENABLE_UNSAFE_LOCK_IMPLS 0
+#endif /* ENABLE_UNSAFE_LOCK_IMPLS */
 
 
 namespace uab
 {
+  /// \brief Overly simple test and set lock.
+  /// \details demonstrates the problem of just using compare_and_exchange
+  ///          when spinning. For a much better implementation see ttas_lock.
   struct tas_lock
   {
-    tas_lock()
-    : mem(0)
-    {}
+      typedef int_fast8_t             token_type;
+      typedef std::atomic<token_type> control_type;
+      typedef control_type&           native_handle_type;
 
-    void lock()
-    {
-      int oldval = 0;
+      tas_lock()
+      : mem(0)
+      {}
 
-      while (!mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed))
+      bool try_lock()
       {
-        oldval = 0;
+        token_type oldval = 0;
+
+        return mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed);
       }
-    }
 
-    void unlock()
-    {
-      mem.store(0, std::memory_order_release);
-    }
+      void lock()
+      {
+        while (!try_lock()) ;
+      }
 
-    bool is_free() const
-    {
-      return mem.load(std::memory_order_relaxed) == 0;
-    }
+      void unlock()
+      {
+        mem.store(0, std::memory_order_release);
+      }
+
+      bool is_free() const
+      {
+        return mem.load(std::memory_order_relaxed) == 0;
+      }
+
+      native_handle_type& native_handle()
+      {
+        return mem;
+      }
 
     private:
-      std::atomic<int> mem;
+      control_type mem;
+
       // unwanted functions
       tas_lock(const tas_lock&) = delete;
       tas_lock(tas_lock&&) = delete;
       tas_lock& operator=(const tas_lock&) = delete;
+      tas_lock& operator=(const tas_lock&&) = delete;
   };
 
-  // aka ShadowLock (Dr. Hyatt)
+  /// \brief ttas_lock (aka shadow lock), uses reads while spinning
   struct ttas_lock
   {
-    ttas_lock()
-    : mem(0)
-    {}
+      typedef int_fast8_t             token_type;
+      typedef std::atomic<token_type> control_type;
+      typedef control_type&           native_handle_type;
 
-    void lock()
-    {
-      for (;;)
+      ttas_lock()
+      : mem(0)
+      {}
+
+      bool try_lock()
       {
-        while (mem.load(std::memory_order_relaxed)) {}
+        token_type oldval = 0;
 
-        int oldval = 0;
-
-        if (mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed)) return;
-      }
-}
-
-    void unlock()
-    {
-      mem.store(0, std::memory_order_release);
-    }
-
-    bool is_free() const
-    {
-      if (mem.load(std::memory_order_relaxed) == 0) {
-        return true;
+        return mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed);
       }
 
-      return false;
-    }
+      void lock()
+      {
+        for (;;)
+        {
+          while (mem.load(std::memory_order_relaxed)) {}
+
+          if (try_lock()) return;
+        }
+      }
+
+      void unlock()
+      {
+        mem.store(0, std::memory_order_release);
+      }
+
+      bool is_free() const
+      {
+        return (mem.load(std::memory_order_relaxed) == 0);
+      }
+
+      native_handle_type& native_handle()
+      {
+        return mem;
+      }
 
     private:
-      std::atomic<int> mem;
+      control_type mem;
+
       // unwanted functions
       ttas_lock(const ttas_lock&) = delete;
       ttas_lock(ttas_lock&&) = delete;
       ttas_lock& operator=(const ttas_lock&) = delete;
+      ttas_lock& operator=(const ttas_lock&&) = delete;
   };
 
 
 #if HTM_ENABLED
+  /// \brief wrapper class around a spinlock that attempts to elide the lock
+  ///        and execute the locked section as transaction.
+  /// \details the class does not implement try_lock (what's its meaning in a TX?).
+  /// \tparam _L the type of the underlying lock
+  /// \tparam NUMTRIES number of attempts a TX is started before acquiring
+  ///         the lock.
+  template <class _L, size_t NUMTRIES = 10>
   struct elided_lock
   {
-    ttas_lock the_lock;
+    _L the_lock;
 
-    //TODO: better tracking of aborts so transaction lenght can be updated.
-    bool lock(){
+    elided_lock()
+    : the_lock()
+    {}
 
-      int i = 0;
-      while (i < 20){
-      if (htm::tx::begin()){
-          if (the_lock.is_free()){
-            return true;
-            //return;
-          }
-          else{
-            htm::tx::abort<81>();
-          }
+    /// \brief starts a transaction or acquires the lock
+    /// \return true, if in TX mode; false otherwise
+    // \todo better tracking of aborts so transaction length can be updated.
+    bool lock()
+    {
+      size_t i = NUMTRIES;
+
+      while (i > 0)
+      {
+        if (htm::tx::begin())
+        {
+          if (the_lock.is_free()) return true;
+
+          htm::tx::abort<81>();
         }
-        i++;
+
+        --i;
       }
 
       the_lock.lock();
       return false;
-
     }
 
-    void unlock(){
+    /// \brief returns true, if the lock is free
+    ///        i.e., if the TX was successfully started
+    bool is_free() const
+    {
+      return the_lock.is_free();
+    }
 
-      if (the_lock.is_free()){
+    /// commits transaction, or unlocks the lock
+    void unlock()
+    {
+      // if lock was not taken, TX must be active
+      if (the_lock.is_free())
+      {
         htm::tx::end();
+        return;
       }
-      else{
-        the_lock.unlock();
-      }
+
+      the_lock.unlock();
     }
   };
 #endif
 
 #if !defined(_WIN32)
+  /// \private
   thread_local std::minstd_rand ttas_lock_backoff_rand(77);
 
+  /// \brief ttas-lock that backs off under contention using increasing intervals
+  /// \details does not implement try_lock
   struct ttas_lock_backoff
   {
     ttas_lock_backoff()
@@ -200,6 +294,7 @@ namespace uab
 
       static const size_t MIN_SLEEP = 1;
       static const size_t MAX_SLEEP = 100 << 10; // ~100 milliseconds
+
       // unwanted functions
       ttas_lock_backoff(const ttas_lock_backoff&) = delete;
       ttas_lock_backoff(ttas_lock_backoff&&) = delete;
@@ -207,8 +302,19 @@ namespace uab
   };
 #endif
 
+#if ENABLE_UNSAFE_LOCK_IMPLS
+  //
+  // these locks are unsafe, because they hold thread private data, which
+  // makes the locks unusable for nested locking
+
+  /// \private
   thread_local size_t                  anderson_ticket;
 
+  /// \private
+  /// \brief    anderson lock, for demonstration only
+  /// \warning  NOT SAFE for nested locks
+  /// \details  uses a thread_local variable to store array index,
+  ///           thus a thread can only HOLD AT MOST ONE anderson_lock!!!!.
   template <size_t ALIGNSZ>
   struct anderson_lock
   {
@@ -260,6 +366,7 @@ namespace uab
       anderson_lock& operator=(const anderson_lock&) = delete;
   };
 
+  /// \private
   struct clh_lock_node
   {
     explicit
@@ -270,9 +377,13 @@ namespace uab
     std::atomic<int> flag;
   };
 
+  /// \private
   thread_local clh_lock_node* clh_curr = nullptr;
+
+  /// \private
   thread_local clh_lock_node* clh_next = nullptr;
 
+  /// \private
   struct clh_lock
   {
     clh_lock()
@@ -321,6 +432,7 @@ namespace uab
       clh_lock& operator=(const clh_lock&) = delete;
   };
 
+  /// \private
   struct mcs_lock_node
   {
     mcs_lock_node()
@@ -331,8 +443,10 @@ namespace uab
     std::atomic<mcs_lock_node*> next;
   };
 
+  /// \private
   thread_local mcs_lock_node mcs_node;
 
+  /// \private
   struct mcs_lock
   {
     mcs_lock()
@@ -393,7 +507,10 @@ namespace uab
       mcs_lock(mcs_lock&&) = delete;
       mcs_lock& operator=(const mcs_lock&) = delete;
   };
+#endif
 
+  /// \brief lock using two counters, one for arrival and one for entering time
+  /// \details does not implement try_lock
   struct counting_lock
   {
     counting_lock()
@@ -423,16 +540,18 @@ namespace uab
     }
 
     private:
-    std::atomic<size_t> ctr;
-    std::atomic<size_t> ticket;
+      std::atomic<size_t> ctr;
+      std::atomic<size_t> ticket;
       // unwanted functions
       counting_lock(const counting_lock&) = delete;
       counting_lock(counting_lock&&) = delete;
       counting_lock& operator=(const counting_lock&) = delete;
   };
+
   //
   // guards and friends
 
+  /// \private
   /// iterate through all tuple elements
   template <size_t I>
   struct tuple_for_all
@@ -446,6 +565,7 @@ namespace uab
     }
   };
 
+  /// \private
   /// base case
   template <>
   struct tuple_for_all<0>
@@ -458,14 +578,7 @@ namespace uab
     }
   };
 
-  //~ template <size_t I>
-  //~ template <typename ...Elidable, class F>
-  //~ F tuple_for_all<I>::apply(std::tuple<Elidable&...>& data, F f)
-  //~ {
-    //~ f(data.get<I-1>());
-    //~ return tuple_for_all<I-1>::apply(data, f);
-  //~ }
-
+  /// \private
   /// iterate through all tuple elements
   template <size_t I, size_t L>
   struct tuple_find_idx
@@ -479,6 +592,7 @@ namespace uab
     }
   };
 
+  /// \private
   /// base case
   template <size_t I>
   struct tuple_find_idx<I, I>
@@ -491,14 +605,7 @@ namespace uab
     }
   };
 
-  //~ template <size_t I, size_t L>
-  //~ template <typename ...Elidable, class F>
-  //~ size_t tuple_find_idx<I>::apply(std::tuple<Elidable&...>& data, F f)
-  //~ {
-    //~ if f(data.get<I>()) return I;
-    //~ return tuple_find_idx<I+1, L>::apply(data, f);
-  //~ }
-
+  /// \private
   struct is_not_free
   {
     template <class Elidable>
@@ -508,6 +615,7 @@ namespace uab
     }
   };
 
+  /// \private
   struct acquire_lock
   {
     template <class Lockable>
@@ -517,6 +625,7 @@ namespace uab
     }
   };
 
+  /// \private
   struct release_lock
   {
     template <class Lockable>
@@ -527,6 +636,7 @@ namespace uab
   };
 
 #if HTM_ENABLED
+  /// \private
   template <class Elideables>
   static inline
   void touch_all(Elideables& elidables)
@@ -539,6 +649,7 @@ namespace uab
   }
 #endif
 
+  /// \private
   template <class Lockables>
   static inline
   void lock_all(Lockables& lockables)
@@ -548,6 +659,7 @@ namespace uab
     tuple_for_all<NUMLOCKS>::apply(lockables, acquire_lock());
   }
 
+  /// \private
   template <class Lockables>
   static inline
   void unlock_all(Lockables& lockables)
@@ -559,25 +671,33 @@ namespace uab
 
 #if HTM_ENABLED
 
-  /// creates  a lock guard for elidable locks (those implemented in locks.hpp)
+  /// \private
+  template <typename ...Elidable>
+  static inline
+  bool is_first_free(std::tuple<Elidable&...>& mtx)
+  {
+    return std::get<0>(mtx).is_free();
+  }
+
+  /// \private
+  /// creates a lock guard for elidable locks (need to support is_free() )
   ///
   /// \tparam  ...Elidable a sequence of elidable lock types
   /// \details this is an internal class, use the external constructor function below
   template <typename ...Elidable>
   struct elidable_guard
   {
-      size_t                   tries;
       std::tuple<Elidable&...> elidables;
 
-      elidable_guard(const size_t num_retries, Elidable&... args)
-      : tries(num_retries), elidables(args...)
+      elidable_guard(size_t num_retries, Elidable&... args)
+      : elidables(args...)
       {
-        while (tries > 0 && !htm::tx::begin())
+        while (num_retries > 0 && !htm::tx::begin())
         {
-          tries = htm::tx::may_retry() ? tries-1 : 0;
+          num_retries = htm::tx::may_retry() ? num_retries-1 : 0;
         }
 
-        if (tries)
+        if (num_retries)
           touch_all(elidables);
         else
           lock_all(elidables);
@@ -585,9 +705,7 @@ namespace uab
 
       ~elidable_guard()
       {
-        // \todo check if htm::tx::state() == htm::tx::active could be used instead?
-
-        if (tries)
+        if (is_first_free(elidables))
           htm::tx::end();
         else
           unlock_all(elidables);
@@ -609,8 +727,9 @@ namespace uab
   /// \code
   ///   auto guard = uab::elide_guard(10, m1, m2, m3);
   /// \endcode
-  ///         Note, the locks are acquired in sequence. elide_guard DOES NOT
-  ///         implement any deadlock prevention.
+  ///
+  /// \warning The locks are acquired in sequence. elide_guard DOES NOT
+  ///          implement any deadlock prevention.
   template <typename ...Elidables>
   elidable_guard<Elidables...>
   elide_guard(int num_retries, Elidables&... args)
@@ -618,7 +737,7 @@ namespace uab
     return elidable_guard<Elidables...>(num_retries, args...);
   }
 
-  /// creates an elidable lock guard, which tries 5 times before falling back
+  /// creates an elidable lock-guard, which tries 5 times before falling back
   /// to locks.
   /// \tparam ...Elidables a sequence of elidable lock types
   ///         elidable lock = mutex + is_free member function
@@ -627,10 +746,10 @@ namespace uab
   ///
   /// \details
   /// \code
-  ///   auto guard = uab::elide_guard(10, m1, m2, m3);
+  ///   auto guard = uab::elide_guard(m1, m2, m3);
   /// \endcode
-  ///         Note, the locks are acquired in sequence. elide_guard DOES NOT
-  ///         implement any deadlock prevention.
+  /// \warning The locks are acquired in sequence. elide_guard DOES NOT
+  ///          implement any deadlock prevention.
   template <typename ...Elidables>
   elidable_guard<Elidables...>
   elide_guard(Elidables&... args)
@@ -639,6 +758,10 @@ namespace uab
   }
 #endif /* HTM_ENABLED */
 
+  /// \private
+  /// \brief guards a sequence of locks
+  /// \details to avoid naming the Lockable types, use the external
+  ///          constructor below.
   template <typename ...Lockable>
   struct lockable_guard
   {
@@ -656,6 +779,18 @@ namespace uab
       }
   };
 
+  /// creates lock-guard for multiple locks at once (similar to std::lock_guard
+  ///   but for multiple locks.
+  /// \tparam ...M a sequence of mutex types
+  /// \param  a sequence of references to locks
+  ///
+  /// \details used as follows:
+  /// \code
+  ///   auto guard = uab::lock_guard(m1, m2, m3);
+  /// \endcode
+  ///
+  /// \warning The locks are acquired in sequence. lock_guard DOES NOT
+  ///          implement any deadlock prevention.
   template <typename ...M>
   lockable_guard<M...>
   lock_guard(M&... args)
