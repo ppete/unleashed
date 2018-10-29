@@ -35,7 +35,7 @@ LIBS=
 
 SOURCE=parSkipListUniqueElems.cc
 TARGET=skiplist.bin
-INCLUDE=../include
+INCLUDE=../../include
 DEFINES=-D$(TEST_ALLOC)=1
 
 ifeq ($(TEST_HTM),)
