@@ -575,11 +575,12 @@ namespace lockfree
   template <class _Tp, class _Alloc>
   struct pub_scan_data
   {
-      typedef std::allocator_traits<_Alloc>                          _OrigAlloc_traits;
-      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp> _TpAlloc;
+      typedef std::allocator_traits<_Alloc>                           _OrigAlloc_traits;
+      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp>  _TpAlloc;
+      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp*> _PpAlloc;
 
       typedef std::atomic<_Tp*>           pinwall_entry;
-      typedef std::vector<_Tp*, _TpAlloc> removal_collection;
+      typedef std::vector<_Tp*, _PpAlloc> removal_collection;
 
       pub_scan_data<_Tp, _Alloc> const * next; ///< next thread's data
       pinwall_entry* const               base; ///< base address of hazard pointers
@@ -1354,7 +1355,8 @@ namespace lockfree
         /* cleanupfun(n); not needed */
       //~ }
 
-      release_entry<value_type, _Alloc<_Tp> > collect_epochs()
+      release_entry<value_type, _Alloc<_Tp> >
+      collect_epochs()
       {
         typedef scan_iterator<epoch_data<value_type, _Alloc<_Tp> > > epoch_iterator;
         typedef epoch_data<value_type, _Alloc<_Tp> >                 epoch_data_t;
@@ -1374,7 +1376,8 @@ namespace lockfree
         return res;
       }
 
-      void push_curr_list(typename epoch_data<value_type, _Alloc<_Tp> >::removal_collection::value_type&& epochdesc)
+      void
+      push_curr_list(typename epoch_data<value_type, _Alloc<_Tp> >::removal_collection::value_type&& epochdesc)
       {
         epochdata->rmvd.front().swap(epochdesc);
       }

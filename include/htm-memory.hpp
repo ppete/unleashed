@@ -1087,20 +1087,23 @@ namespace htm
 
   static const size_t MAXSURVIVALS = 2;
 
-  template <class _Tp, class _Alloc>
+  template <class _T, class _Alloc>
   struct release_entry
   {
-    typedef std::vector<size_t, _Alloc> epoch_vector;
+    typedef typename _Alloc::template rebind<size_t>::other size_t_alloc;
+    typedef typename _Alloc::template rebind<_T*>::other    tp_alloc;
+    typedef std::vector<size_t, size_t_alloc>               epoch_vector;
+    typedef std::vector<_T*, tp_alloc>                      epoch_ptr_vector;
 
-    epoch_vector              epochtime;
-    std::vector<_Tp*, _Alloc> epochptrs;
-    size_t                    survivals;
+    epoch_vector     epochtime;
+    epoch_ptr_vector epochptrs;
+    size_t           survivals;
 
     release_entry()
     : epochtime(), epochptrs(), survivals(0)
     {}
 
-    void swap(release_entry<_Tp, _Alloc>& other)
+    void swap(release_entry<_T, _Alloc>& other)
     {
       epochtime.swap(other.epochtime);
       epochptrs.swap(other.epochptrs);
@@ -1212,7 +1215,7 @@ namespace htm
 
     // we traverse the epoch vector and find all threads that have not yet
     //   made progress. if we find another thread which is active and whose
-    //   epoch has not yet advanced, it will be cancelled.
+    //   epoch has not yet advanced, it will be canceled.
     while (entryraa != entryrzz)
     {
       assert(raa != vec.rend());
@@ -1437,11 +1440,12 @@ namespace htm
         return res;
       }
 
-      std::vector<epoch_data<value_type, _Alloc<_Tp> >*, _Alloc<_Tp> >
+      std::vector<epoch_data<value_type, _Alloc<_Tp> >*, _Alloc<epoch_data<value_type, _Alloc<_Tp> >* > >
       collect_epochptrs()
       {
         typedef epoch_data<value_type, _Alloc<_Tp> >     epoch_data_t;
-        typedef std::vector<epoch_data_t*, _Alloc<_Tp> > result_t;
+        // typedef std::vector<epoch_data_t*, _Alloc<_Tp> > result_t;
+        typedef std::vector<epoch_data<value_type, _Alloc<_Tp> >*, _Alloc<epoch_data<value_type, _Alloc<_Tp> >* > > result_t;
         typedef scan_iterator<epoch_data_t>              epoch_iterator;
 
         epoch_data_t*    curr = allepochData.load(std::memory_order_relaxed);
@@ -1674,7 +1678,9 @@ namespace htm
   template <class _Tp, class _Alloc>
   struct alignas(CACHELINESZ) strack_data
   {
-    typedef std::vector<_Tp*, _Alloc> removal_collection;
+    typedef std::allocator_traits<_Alloc>                           _OrigAlloc_traits;
+    typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp*> _PpAlloc;
+    typedef std::vector<_Tp*, _PpAlloc>                             removal_collection;
 
     std::atomic<_Tp**>        base;            ///< pinwall base
     std::atomic<_Tp**>        last;            ///< pinwall range limit
