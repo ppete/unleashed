@@ -23,4 +23,4 @@ found (e.g., rand).
 Contributors:\
 Nicholas Dzugan\
 Christina Peterson\
-Amalee Wilson\
+Amalee Wilson
