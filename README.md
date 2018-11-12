@@ -2,7 +2,7 @@ The BLAZE Concurrent Data Structure Library
 -------------------------------------------
 
 
-/include:      contains the BLAZE library files.
+/include:      contains the BLAZE library files.\
 ./scripts:     contains shell scripts that compile test BLAZE code on various systems
 ./examples:    contains test and benchmark codes for the BLAZE framework
   ./android:   sample AndroidStudio project that uses BLAZE. Note AndroidStudio 1.3 and gradle-2.5 are required for testing the simple application.
