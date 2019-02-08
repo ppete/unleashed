@@ -270,7 +270,7 @@ void parTreeSearch(int depth, Node* parent, int numChildren, accumulator_t* sum)
 
      nodePtr->numChildren = uts_numChildren(nodePtr);
 
-     #pragma omp task untied firstprivate(i, nodePtr, sum)
+     #pragma omp task untied firstprivate(depth, nodePtr, sum)
      parTreeSearch(depth+1, nodePtr, nodePtr->numChildren, sum);
   }
 
@@ -288,10 +288,12 @@ count_t parallel_uts (Node* root, size_t numthreads)
 
    root->numChildren = uts_numChildren(root);
 
-   #pragma omp parallel
+   #pragma omp parallel firstprivate(root) shared(sum)
+   {
       #pragma omp single nowait
-      #pragma omp task untied
+      #pragma omp taskgroup
       parTreeSearch( 0, root, root->numChildren, sum );
+   }
 
    while (numthreads) num_nodes += sum[--numthreads].val;
 
