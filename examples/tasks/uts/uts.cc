@@ -211,7 +211,7 @@ count_t parTreeSearch(int depth, Node *parent, int numChildren)
 
      child->numChildren = uts_numChildren(child);
 
-     #pragma omp task untied firstprivate(i, child) shared(partialCount)
+     #pragma omp task untied firstprivate(depth, i, child) shared(partialCount)
      partialCount[i] = parTreeSearch(depth+1, child, child->numChildren);
   }
 
