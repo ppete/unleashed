@@ -165,6 +165,25 @@ namespace lockfree
                                          ///  (for 10 threads) when the data is in cache
 
 
+  /// \private
+  /// simple ptr deleter, that uses the provided allocator to release memory.
+  template <class _Alloc>
+  struct ptr_deleter
+  {
+    ptr_deleter(_Alloc alloc, typename _Alloc::value_type* elem)
+    : node_allocator(alloc), e(elem)
+    {}
+
+    ~ptr_deleter()
+    {
+      node_allocator.deallocate(e, 1);
+    }
+
+    _Alloc                             node_allocator;
+    typename _Alloc::value_type* const e;
+  };
+
+
   //
   // Auxiliary classes to manage an allocators PinWall
 
@@ -1154,17 +1173,17 @@ namespace lockfree
     std::atomic<size_t>             epoch; ///< odd numbers indicate busy epochs
 
     size_t                          collepoch;
-    removal_collection              rmvd;
+    removal_collection              rmvc;
 
     size_t reclaimation_increment()
     {
-      return rmvd.front().epochtime.size() + 8;
+      return rmvc.front().epochtime.size() + 8;
     }
 
     epoch_data()
-    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvd(1)
+    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvc(1)
     {
-      assert(!rmvd.empty());
+      assert(!rmvc.empty());
     }
   };
 
@@ -1187,25 +1206,39 @@ namespace lockfree
     typedef typename epoch_data_t::removal_collection removal_collection;
     typedef typename release_entry_t::epoch_vector    epoch_vector;
 
+    // true if freeepoch and currepoch produce a "mismatch".
+    //   mismatch =
     static bool epoch_passed(size_t freeepoch, size_t currepoch)
     {
-      return (  (!active(freeepoch))    // not active at the time it was freed
-             || ( currepoch > freeepoch) // or thread has advanced to new epoch
+      assert(freeepoch <= currepoch);
+
+      return (  freeepoch != currepoch // unchanged epoch component
+             || !active(freeepoch)     // active
              );
     }
 
-    typename epoch_vector::reverse_iterator curraa;
+    typename epoch_vector::const_reverse_iterator const curraa;
 
     explicit
-    passed_epoch_finder(epoch_vector& vec)
+    passed_epoch_finder(const epoch_vector& vec)
     : curraa(vec.rbegin())
     {}
 
     bool operator()(typename removal_collection::value_type& entry)
     {
-      typename epoch_vector::reverse_iterator entryzz = entry.epochtime.rend();
+      typename epoch_vector::reverse_iterator const entryzz = entry.epochtime.rend();
 
-      return entryzz != std::mismatch(entry.epochtime.rbegin(), entryzz, curraa, epoch_passed).first;
+      // mismatch finds the first component where the current epoch (curraa) has
+      //   not advanced passed the epoch when elements where freed
+      //   (entry.epochtime).
+      //   - reverse iterator, b/c epochs are recorded in reverse order, with
+      //     the oldest component being at the last position.
+      //   - the length of the current epoch vector may be longer than the epoch
+      //     vector at the time when objects were freed, thus we iterator over
+      //     entry.epochtime.
+      typename epoch_vector::reverse_iterator pos = std::mismatch(entry.epochtime.rbegin(), entryzz, curraa, epoch_passed).first;
+
+      return entryzz == pos;
     }
   };
 
@@ -1214,7 +1247,7 @@ namespace lockfree
   template <class _FwdIter, class _UnaryPred>
   _FwdIter fwd_find(_FwdIter before_aa, _FwdIter zz, _UnaryPred pred)
   {
-    if ( before_aa == zz ) return zz;
+    assert( before_aa != zz);
 
     _FwdIter pos = before_aa;
 
@@ -1379,7 +1412,7 @@ namespace lockfree
       void
       push_curr_list(typename epoch_data<value_type, _Alloc<_Tp> >::removal_collection::value_type&& epochdesc)
       {
-        epochdata->rmvd.front().swap(epochdesc);
+        epochdata->rmvc.front().swap(epochdesc);
       }
 
       void free_unreferenced_memory()
@@ -1391,18 +1424,20 @@ namespace lockfree
         typedef typename release_entry_t::epoch_vector        epoch_vector;
         typedef passed_epoch_finder<value_type, _Alloc<_Tp> > passed_epoch_finder_t;
 
-        removal_collection&    rmvd   = epochdata->rmvd;
-        epoch_vector&          epoch  = rmvd.front().epochtime;
-        removal_iterator       preaa  = rmvd.before_begin();
-        removal_iterator const zz     = rmvd.end();
+        removal_collection&    rmvc   = epochdata->rmvc;
+        epoch_vector&          epoch  = rmvc.front().epochtime;
+        removal_iterator const preaa  = rmvc.before_begin();
+        removal_iterator const zz     = rmvc.end();
 
         // could use binary search (if we had a vector), but it is expected
         //   that we do not keep too many removal records around.
         removal_iterator const prepos = fwd_find(preaa, zz, passed_epoch_finder_t(epoch));
         removal_iterator       pos    = prepos;
 
-        std::for_each(++pos, zz, epochDeallocator(base::get_allocator()));
-        rmvd.erase_after(prepos, zz);
+        std::advance(pos, 1);
+
+        std::for_each(pos, zz, epochDeallocator(base::get_allocator()));
+        rmvc.erase_after(prepos, zz);
       }
 
       /// \brief  compares epochs of releasable elements with current epochs of threads.
@@ -1421,7 +1456,7 @@ namespace lockfree
         free_unreferenced_memory();
 
         // add a new entry for the next epoch
-        epochdata->rmvd.push_front( release_entry<value_type, _Alloc<_Tp> >() );
+        epochdata->rmvc.push_front( release_entry<value_type, _Alloc<_Tp> >() );
       }
 
       /// releases all memory
@@ -1432,12 +1467,12 @@ namespace lockfree
         typedef epoch_data<value_type, _Alloc<_Tp> >          epoch_data_t;
         typedef typename epoch_data_t::removal_collection     removal_collection;
 
-        removal_collection&    rmvd   = epochdata->rmvd;
+        removal_collection& rmvc = epochdata->rmvc;
 
-        std::for_each(rmvd.begin(), rmvd.end(), epochDeallocator(base::get_allocator()));
+        std::for_each(rmvc.begin(), rmvc.end(), epochDeallocator(base::get_allocator()));
 
-        rmvd.clear();
-        rmvd.push_front( release_entry<value_type, _Alloc<_Tp> >() );
+        rmvc.clear();
+        rmvc.push_front( release_entry<value_type, _Alloc<_Tp> >() );
       }
 
       /// \brief  returns whether releasable memory blocks were held back
@@ -1447,11 +1482,11 @@ namespace lockfree
         typedef epoch_data<value_type, _Alloc<_Tp> >      epoch_data_t;
         typedef typename epoch_data_t::removal_collection removal_collection;
 
-        typename removal_collection::iterator aa = epochdata->rmvd.begin();
-        typename removal_collection::iterator zz = epochdata->rmvd.end();
+        typename removal_collection::iterator aa = epochdata->rmvc.begin();
+        typename removal_collection::iterator zz = epochdata->rmvc.end();
 
         return (  (aa != zz && (++aa) != zz)
-               || (!epochdata->rmvd.front().epochptrs.empty())
+               || (!epochdata->rmvc.front().epochptrs.empty())
                );
       }
 
@@ -1459,8 +1494,8 @@ namespace lockfree
       ///         being still able to reference them.
       size_t count_unreleased_memory() const
       {
-         return std::accumulate( epochdata->rmvd.begin(),
-                                 epochdata->rmvd.end(),
+         return std::accumulate( epochdata->rmvc.begin(),
+                                 epochdata->rmvc.end(),
                                  0,
                                  [](size_t sz, release_entry<value_type, _Alloc<_Tp> >& entry)
                                  {
@@ -1530,7 +1565,7 @@ namespace lockfree
       {
         assert(epochdata);
 
-        epochdata->rmvd.front().epochptrs.push_back(entry);
+        epochdata->rmvc.front().epochptrs.push_back(entry);
       }
 
     private:
