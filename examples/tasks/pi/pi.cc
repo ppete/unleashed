@@ -5,11 +5,13 @@
  * Adaptive Quadrature.
  * http://www.math.usm.edu/lambers/mat460/fall09/lecture30
  *
- * Implementer: Peter Pirkelbauer (UAB)
+ * Implementer: Peter Pirkelbauer
  */
 
 /**
- * This program is part of the Blaze-Task Test Suite
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
  * All rights reserved.
@@ -50,7 +52,8 @@
 
 #include "../common/common-includes.hpp"
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
+#include "ucl/task-pool-x.hpp"
 
 #define PRINT_STATS 0
 #define WITH_HISTOGRAM 0
@@ -60,9 +63,52 @@
 #endif /* PROBLEM_SIZE */
 
 
-typedef long double pi_type;
+typedef long double                pi_type;
+
+struct counting_task_t
+{
+  counting_task_t(pi_type v = 0.0)
+  : val(v), seg(1)
+  {}
+
+  counting_task_t& operator+=(const counting_task_t& that)
+  {
+    this->val += that.val;
+    this->seg += that.seg;
+    return *this;
+  }
+
+  friend
+  counting_task_t operator+(const counting_task_t& lhs, const counting_task_t& rhs)
+  {
+    counting_task_t tmp(lhs);
+
+    return tmp+=rhs;
+  }
+
+  pi_type val;
+  size_t  seg;
+};
+
+typedef pi_type                    task_result_type;
+//~ typedef counting_task_t            task_result_type;
+
+static inline
+pi_type value(counting_task_t t)   { return t.val; }
+
+static inline
+size_t segments(counting_task_t t) { return t.seg; }
+
+static inline
+pi_type value(pi_type t)   { return t; }
+
+static inline
+size_t segments(pi_type)   { return 0; }
+
+
 
 static const pi_type EPSILON    = PROBLEM_SIZE; ///< controls how many tasks will be needed
+
 
 #if WITH_HISTOGRAM
 template <class D>
@@ -103,8 +149,6 @@ histogram<long double> hist(0.0, 1.0, 100);
 #endif /* WITH_HISTOGRAM */
 
 /// number of segments used to compute the result
-static size_t        splits = 1;
-
 struct pi_formula
 {
   template <class D>
@@ -112,6 +156,12 @@ struct pi_formula
   {
     return sqrt(1-x*x);
   }
+
+#if __PGI
+  pi_formula(const pi_formula&) {}
+
+  pi_formula() {}
+#endif
 };
 
 template <class F, class D>
@@ -142,6 +192,39 @@ struct integration_task
   D low;
   D step;
   D res;
+
+#if UCL_VERSION
+  integration_task(const integration_task&) = delete;
+  integration_task& operator=(const integration_task&) = delete;
+
+  integration_task(D l, D s, D r)
+  : low(l), step(s), res(r)
+  {}
+
+  integration_task()
+  : integration_task(D(), D(), D())
+  {}
+
+  integration_task(integration_task&& other)
+  : low(other.low), step(other.step), res(other.res)
+  {}
+
+  integration_task& operator=(integration_task&& other)
+  {
+    low = other.low;
+    step = other.step;
+    res = other.res;
+    return *this;
+  }
+#elif __PGI
+  integration_task(const integration_task& other)
+  : low(other.low), step(other.step), res(other.res)
+  {}
+
+  integration_task(D l, D s, D r)
+  : low(l), step(s), res(r)
+  {}
+#endif /* UCL_VERSION */
 };
 
 
@@ -165,13 +248,13 @@ auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pa
     D    a1       = method(f, task.low,          halfstep, 0);
     D    a2       = method(f, task.low+halfstep, halfstep, 0);
 
-    a        = a1+a2;
+    a   = a1+a2;
     dif = task.res > a ? task.res - a : a - task.res;
     tol = 3 * task.step * eps;
 
     if (dif >= tol)
     {
-      #pragma omp task
+      #pragma omp task firstprivate(f, eps, task, halfstep, a1)
       integrate_adaptive(f, eps, integration_task{task.low, halfstep, a1});
 
       // run on same thread
@@ -186,14 +269,12 @@ auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pa
 
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
+auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
 {
-  omp_set_num_threads(NUMTHREADS);
+  D step = hi-lo;
+  D res  = D();
 
-  D                                                    step = hi-lo;
-  D                                                    res  = D();
-
-  #pragma omp parallel firstprivate(f, lo, hi, eps, step) shared(res)
+  #pragma omp parallel num_threads(numthreads) firstprivate(f, lo, eps, step) shared(res)
   {
     partialresult = D();
 
@@ -212,6 +293,74 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 }
 #endif /* OMP_VERSION */
 
+#if WOMP_VERSION
+
+pi_type partialresult;
+#pragma omp threadprivate(partialresult)
+
+template <class F, class D>
+auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pair<D, size_t>
+{
+  typedef integration_task<D> integration_task;
+
+  D      dif;
+  D      tol;
+  D      a;
+
+  do
+  {
+    D    halfstep = task.step / 2;
+    D    a1       = method(f, task.low,          halfstep, 0);
+    D    a2       = method(f, task.low+halfstep, halfstep, 0);
+
+    a   = a1+a2;
+    dif = task.res > a ? task.res - a : a - task.res;
+    tol = 3 * task.step * eps;
+
+    if (dif >= tol)
+    {
+      #pragma omp task
+      integrate_adaptive(f, eps, integration_task{task.low, halfstep, a1});
+
+      // run on same thread
+      task = integration_task{task.low+halfstep, halfstep, a2};
+    }
+  } while (dif >= tol);
+  
+  #pragma omp taskwait
+
+  partialresult += a;
+
+  //~ hist.add(task.low, task.step);
+}
+
+
+template <class D, class F>
+auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
+{
+  D step = hi-lo;
+  D res  = D();
+
+  #pragma omp parallel num_threads(numthreads) firstprivate(f, lo, eps, step) shared(res)
+  {
+    partialresult = D();
+
+    #pragma omp single
+    #pragma omp taskgroup
+    {
+      integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)});
+    }
+
+    #pragma omp atomic
+    res += partialresult;
+  }
+
+  //~ hist.print();
+  return res;
+}
+#endif /* OMP_VERSION */
+
+
 #if TBB_VERSION
 
 template <class G, class F, class D>
@@ -219,7 +368,8 @@ void integrate_adaptive( G& taskgroup,
                          F f,
                          D eps,
                          integration_task<D> task,
-                         uab::simple_reducer<D>& reducer)
+                         ucl::simple_reducer<D>& reducer
+                       )
 {
   typedef integration_task<D> integration_task;
 
@@ -260,17 +410,16 @@ void integrate_adaptive( G& taskgroup,
 
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
+auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
 {
-  tbb::task_scheduler_init init(NUMTHREADS);
-  tbb::task_group          g;
-  uab::simple_reducer<D>   reducer;
-  D                        step = hi-lo;
+  tbb::task_scheduler_init              init(numthreads);
+  tbb::task_group                       g;
+  ucl::simple_reducer<task_result_type> reducer;
+  D                                     step = hi-lo;
 
   integrate_adaptive(g, f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)}, reducer);
 
   g.wait();
-  splits = 0;
   return reducer.get_value();
 }
 
@@ -278,20 +427,10 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 
 #if CILK_VERSION
 
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
 template <class F, class D>
-auto integrate_adaptive(F f, D eps, integration_task<D> task, cilk::reducer_opadd<D>& sum) -> void
+auto integrate_adaptive( F f, D eps, integration_task<D> task,
+                         cilk::reducer_opadd<task_result_type>& sum
+                       ) -> void
 {
   typedef integration_task<D> integration_task;
 
@@ -322,12 +461,12 @@ auto integrate_adaptive(F f, D eps, integration_task<D> task, cilk::reducer_opad
 }
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
+auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
 
-  D                      step = hi-lo;
-  cilk::reducer_opadd<D> sum;
+  D                                     step = hi-lo;
+  cilk::reducer_opadd<task_result_type> sum;
 
   integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)}, sum);
 
@@ -398,8 +537,10 @@ void reduce(void* target, const void* source)
 }
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
+auto integrate_adaptive(F f, D lo, D hi, size_t /*numthreads*/, D eps) -> D
 {
+  // numthreads is set at start up
+
   D          result = 0;
   D          step   = hi-lo;
   qt_sinc_t* sinc   = qt_sinc_create(sizeof(D), &result, reduce<D>, 1);
@@ -414,12 +555,12 @@ auto integrate_adaptive(F f, D lo, D hi, D eps) -> D
 
 
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
 template <class D, class F, class T>
 struct adaptive_integral
 {
-  typedef D result_type;
+  //~ typedef D result_type;
   // typedef std::pair<D, size_t> result_type;
 
   F        fun;
@@ -431,11 +572,11 @@ struct adaptive_integral
   {}
 
   template <class pool_t>
-  result_type operator()(pool_t& tasks, T task)
+  task_result_type operator()(pool_t& tasks, T task)
   {
-    D   dif;
-    D   tol;
-    result_type res;
+    D dif;
+    D tol;
+    D res;
 
     do
     {
@@ -459,21 +600,36 @@ struct adaptive_integral
 };
 
 template <class F, class D>
-D integrate_adaptive(F f, D lo, D hi, D eps)
+task_result_type integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps)
 {
   adaptive_integral<D, F, integration_task<D> > fun(f, eps);
 
-  return uab::execute_tasks(NUMTHREADS, fun, integration_task<D>{ lo, hi-lo, eps });
+#if !HTM_ENABLED
+  return ucl::execute_tasks_x(numthreads, fun, integration_task<D>{ lo, hi-lo, eps });
+
+  //~ return ucl::execute_pool(fun, ucl::make_pool_x(numthreads, integration_task<D>{ lo, hi-lo, eps }));
+#else
+  return htm::execute_tasks(numthreads, fun, integration_task<D>{ lo, hi-lo, eps });
+#endif /* !HTM_ENABLED */
 }
 
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
-int main()
+int main(int argc, char** args)
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
+  size_t  num_threads = NUMTHREADS;
+  pi_type tolerance   = EPSILON;
+
+  if (argc > 1) num_threads = aux::as<size_t>(*(args+1));
+  if (argc > 2) tolerance   = aux::as<pi_type>(*(args+2));
+
+  std::cout << num_threads << " << threads - tolerance >> " << tolerance
+            << std::endl;
+
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
+  init_qthreads(num_threads);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();
@@ -481,14 +637,20 @@ int main()
   // executes loop in parallel
   //   and uses a reduction algorithm to combine all pi values that were
   //   computed across threads.
-  pi_type        pi  = 4 * integrate_adaptive(pi_formula(), pi_type(0), pi_type(1), EPSILON);
+  task_result_type pi  = integrate_adaptive( pi_formula(),
+                                             pi_type(0),
+                                             pi_type(1),
+                                             num_threads,
+                                             tolerance
+                                           );
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 
-  std::cout << "pi   = " << std::setprecision(32) << pi << std::endl;
+  std::cout << "pi   = " << std::setprecision(32) << (4*value(pi)) << std::endl;
+  std::cout << "segs = " << segments(pi) << std::endl;
   std::cout << "time = " << elapsedtime << "ms" << std::endl;
-  std::cout << splits << std::endl;
+
   std::cerr << elapsedtime << std::endl;
   return 0;
 }

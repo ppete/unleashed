@@ -1,8 +1,10 @@
 /*
- * Code modified to run with the BLAZE task framework
+ * Code modified to run with the UCL task framework
  *
- * Peter Pirkelbauer, 2018
- * UAB - University of Alabama at Birmingham
+ * modifier: Peter Pirkelbauer
+ *
+ * Copyright (c) 2019, LLNL
+ * Copyright (c) 2018, University of Alabama at Birmingham
  */
 
 
@@ -461,6 +463,12 @@ struct DistributionTask
 {
   int si;
   int si_max;
+
+#if __PGI
+  DistributionTask(const DistributionTask& other)
+  : si(other.si), si_max(other.si_max)
+  {}
+#endif
 };
 
 static
@@ -514,7 +522,7 @@ void compute(ComputationTask task)
 
 
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
 struct AlignmentTask
 {
@@ -597,20 +605,20 @@ auto distribute(Pool& pool, DistributionTask work) -> void
 struct AlignHandler
 {
   template <class Pool>
-  auto operator()(Pool& pool, AlignmentTask work) -> uab::Void
+  auto operator()(Pool& pool, AlignmentTask work) -> ucl::Void
   {
     if (work.kind == AlignmentTask::distribution)
     {
       distribute(pool, work.variant.dist);
-      return uab::Void();
+      return ucl::Void();
     }
 
     compute(work.variant.comp);
-    return uab::Void();
+    return ucl::Void();
   }
 };
 
-int pairalign()
+int pairalign(size_t num_threads)
 {
    int* matptr   = gon250mt;
    int* mat_xref = def_aa_xref;
@@ -619,12 +627,12 @@ int pairalign()
 
    bots_message("Start aligning ");
 
-   uab::execute_tasks(NUMTHREADS, AlignHandler(), makeDistributionTask(0, nseqs));
+   ucl::execute_tasks_x(num_threads, AlignHandler(), makeDistributionTask(0, nseqs));
 
    bots_message(" completed!\n");
    return 0;
 }
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
 #if OMP_VERSION
 
@@ -671,7 +679,7 @@ auto distribute(DistributionTask work) -> void
   }
 }
 
-int pairalign()
+int pairalign(size_t numthreads)
 {
    int* matptr   = gon250mt;
    int* mat_xref = def_aa_xref;
@@ -680,9 +688,7 @@ int pairalign()
 
    bots_message("Start aligning ");
 
-   omp_set_num_threads(NUMTHREADS);
-
-   #pragma omp parallel
+   #pragma omp parallel num_threads(numthreads) firstprivate(nseqs)
    #pragma omp single
    {
      #pragma omp taskgroup
@@ -749,7 +755,7 @@ auto distribute(G& taskgroup, DistributionTask work) -> void
   }
 }
 
-int pairalign()
+int pairalign(size_t numthreads)
 {
    int* matptr   = gon250mt;
    int* mat_xref = def_aa_xref;
@@ -758,7 +764,7 @@ int pairalign()
 
    bots_message("Start aligning ");
 
-   tbb::task_scheduler_init init(NUMTHREADS);
+   tbb::task_scheduler_init init(numthreads);
    tbb::task_group          g;
 
    distribute(g, DistributionTask{0, nseqs});
@@ -820,19 +826,8 @@ auto distribute(DistributionTask work) -> void
   }
 }
 
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
 
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
-int pairalign()
+int pairalign(size_t numthreads)
 {
    int* matptr   = gon250mt;
    int* mat_xref = def_aa_xref;
@@ -841,7 +836,7 @@ int pairalign()
 
    bots_message("Start aligning ");
 
-   set_cilk_workers(NUMTHREADS);
+   set_cilk_workers(numthreads);
    distribute(DistributionTask{0, nseqs});
 
    bots_message(" completed!\n");
@@ -933,10 +928,10 @@ aligned_t distribute(void* qtsk)
 
     if (si_half < work.si_max)
     {
-      // qt_dist_task sub{si_half, work.si_max, work.sinc};
+      qt_dist_task sub{si_half, work.si_max, work.sinc};
 
-      // qt_sinc_expect(work.sinc, 1);
-      // qthread_fork_copyargs(distribute, &sub, sizeof(qt_dist_task), nullptr);
+      qt_sinc_expect(work.sinc, 1);
+      qthread_fork_copyargs(distribute, &sub, sizeof(qt_dist_task), nullptr);
     }
 
     work.si_max = si_half;
@@ -974,7 +969,7 @@ aligned_t distribute(void* qtsk)
   return aligned_t();
 }
 
-int pairalign()
+int pairalign(size_t /*numthreads*/)
 {
    int* matptr     = gon250mt;
    int* mat_xref   = def_aa_xref;
@@ -994,9 +989,9 @@ int pairalign()
 
 #endif /* QTHREADS_VERSION */
 
-#if BOTS_VERSION
+#if WOMP_VERSION
 
-int pairalign()
+int pairalign(size_t numthreads)
 {
    int i, n, m, si, sj;
    int len1, len2, maxres;
@@ -1010,9 +1005,7 @@ int pairalign()
 
    bots_message("Start aligning ");
 
-   omp_set_num_threads(NUMTHREADS);
-
-   #pragma omp parallel
+   #pragma omp parallel num_threads(numthreads)
    {
    #pragma omp for schedule(dynamic) private(i,n,si,sj,len1,m)
       for (si = 0; si < nseqs; si++) {
@@ -1075,7 +1068,7 @@ int pairalign()
 }
 
 
-#endif /* BOTS_VERSION */
+#endif /* WOMP_VERSION */
 
 
 
@@ -1215,11 +1208,6 @@ void align_init ()
    for(int i = 0; i<nseqs; i++)
       for(int j = 0; j<nseqs; j++)
          bench_output[i*nseqs+j].store(0, std::memory_order_relaxed);
-}
-
-void align()
-{
-   pairalign();
 }
 
 void align_seq_init()
@@ -1452,22 +1440,25 @@ int main(int argc, char** argv)
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
+  size_t      num_threads = NUMTHREADS;
   std::string inputfile = "data/prot.100.aa";
 
-  if (argc > 1) inputfile = argv[1];
+  if (argc > 1) num_threads = aux::as<size_t>(argv[1]);
+  if (argc > 2) inputfile = argv[2];
 
-  std::cout << "loading " << inputfile << std::endl;
+  std::cout << "threads: " << num_threads << std::endl
+            << "loading " << inputfile << std::endl;
 
   pairalign_init(inputfile.c_str());
 
   align_init();
 
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS, 40000);
+  init_qthreads(num_threads, 40000);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();
-  align();
+  pairalign(num_threads);
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 

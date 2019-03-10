@@ -30,11 +30,11 @@
 ///   template <std::memory_order mo = std::memory_order_seq_cst>
 ///   _Tp* pin(std::atomic<_Tp*>& elem);
 ///
-///   // pins an uab::MarkablePointer and chooses a mo tag appropriate for the
+///   // pins an ucl::MarkablePointer and chooses a mo tag appropriate for the
 ///   //   memory managing technique; The actual memory order is at least as strong.
 ///   template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-///   typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-///   pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem);
+///   typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+///   pin(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem);
 ///
 ///   // pins a non-atomic address (provided to simplify some algorithms)
 ///   _Tp* pin_addr(_Tp& elem);
@@ -55,9 +55,10 @@
 ///   // \param sz maximum number of pointers that need to be guarded
 ///   void beginop(size_t sz);
 ///
-///   // begins an operation on shared data, w/o barrier
-///   //   used for release-only operations
-///   void beginop(size_t sz, unordered);
+///   // initializes the internal data structure
+///   //   if it has not been done yet.
+///   // \param sz maximum number of pointers that need to be guarded
+///   void initialize_if_needed(size_t sz);
 ///
 ///   // ends an operation, and guarantees that all reads/write
 ///   //   from/to the protected memory have completed.
@@ -81,9 +82,9 @@
 /// \endcode
 ///
 /// \author
-///    Nick Dzugan,
-///    Amalee Wilson,
-///    Peter Pirkelbauer ( pirkelbauer@uab.edu )
+///    Nick Dzugan
+///    Amalee Wilson
+///    Peter Pirkelbauer
 
 #ifndef _PMEMORY_HPP
 
@@ -109,8 +110,8 @@
 #include "bitutil.hpp"
 #include "generalutil.hpp"
 
-#ifndef BLAZE_GC_CXX11_THREAD_CONTEXT
-#define BLAZE_GC_CXX11_THREAD_CONTEXT
+#ifndef UCL_GC_CXX11_THREAD_CONTEXT
+#define UCL_GC_CXX11_THREAD_CONTEXT
 namespace {
   /// \brief If GC is enabled and gc-cxx11/gc_cxx11.hpp was included
   ///        gc_cxx_thread_context is defined there.
@@ -127,7 +128,7 @@ namespace {
       void* operator new(size_t size) = delete;
   };
 }
-#endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
+#endif /* UCL_GC_CXX11_THREAD_CONTEXT */
 
 /// lockfree code, though not necessarily nonblocking.
 namespace lockfree
@@ -153,10 +154,6 @@ namespace lockfree
   {
     return std::is_same<T, U>::value;
   }
-
-  /// \private
-  /// auxiliary tag
-  struct unordered {};
 
   static const bool FREE_ALWAYS = false; ///< indicates whether the threads should be scanned after
                                          ///  each pointer deallocation.
@@ -199,12 +196,6 @@ namespace lockfree
         alloc.beginop(pins);
       }
 
-      guard(Alloc a, size_t pins, unordered tag)
-      : alloc(a)
-      {
-        alloc.beginop(pins, tag);
-      }
-
       ~guard()
       {
         alloc.endop();
@@ -220,7 +211,7 @@ namespace lockfree
   {
     template <class Alloc>
     explicit
-    guardless(Alloc, size_t = 0, unordered = unordered())
+    guardless(Alloc, size_t = 0)
     {}
   };
 
@@ -238,10 +229,10 @@ namespace lockfree
   /// \private
   template <std::memory_order mo, class _Tp, size_t MARKABLE_BITS>
   static inline
-  typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-  _ld(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
+  typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+  _ld(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
   {
-    //~ return typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
+    //~ return typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
     return elem.state(mo);
   }
 
@@ -256,7 +247,7 @@ namespace lockfree
   /// \private
   template <class _Tp, class _MARKTYPE>
   static inline
-  // _Tp* _ptr(typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
+  // _Tp* _ptr(typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
   _Tp* _ptr(std::pair<_Tp*, _MARKTYPE> state)
   {
     return state.first;
@@ -353,10 +344,10 @@ namespace lockfree
         return _ld<mo>(elem);
       }
 
-      /// pins a uab::MarkablePointer
+      /// pins a ucl::MarkablePointer
       template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-      typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-      pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
+      typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+      pin(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
       {
         return _ld<mo>(elem);
       }
@@ -594,12 +585,12 @@ namespace lockfree
   template <class _Tp, class _Alloc>
   struct pub_scan_data
   {
-      typedef std::allocator_traits<_Alloc>                           _OrigAlloc_traits;
-      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp>  _TpAlloc;
+      typedef std::allocator_traits<_Alloc>                          _OrigAlloc_traits;
+      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp> _TpAlloc;
       typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp*> _PpAlloc;
 
-      typedef std::atomic<_Tp*>           pinwall_entry;
-      typedef std::vector<_Tp*, _PpAlloc> removal_collection;
+      typedef std::atomic<_Tp*> pinwall_entry;
+      typedef std::vector<_Tp*> removal_collection;
 
       pub_scan_data<_Tp, _Alloc> const * next; ///< next thread's data
       pinwall_entry* const               base; ///< base address of hazard pointers
@@ -888,7 +879,7 @@ namespace lockfree
   static inline
   size_t threshold(size_t len)
   {
-    return len * uab::bsr32(len+1);
+    return len * ucl::bsr32(len+1);
   }
 
   /// \brief   Allocator implementing a publish and scan memory manager
@@ -1050,8 +1041,7 @@ namespace lockfree
         if (FREE_ALWAYS || pinWall->needs_collect()) release_memory();
       }
 
-      /// \brief starts an operation and creates slots for szPinWall entries
-      void beginop(size_t szPinWall, unordered = unordered())
+      void initialize_if_needed(size_t szPinWall)
       {
         typedef pub_scan_data<value_type, _Alloc<_Tp> > pub_scan_data;
 
@@ -1069,6 +1059,12 @@ namespace lockfree
         }
       }
 
+      /// \brief starts an operation and creates slots for szPinWall entries
+      void beginop(size_t szPinWall)
+      {
+        initialize_if_needed(szPinWall);
+      }
+
       /// \brief pins an atomic pointer
       template <std::memory_order mo = std::memory_order_seq_cst>
       value_type*
@@ -1078,10 +1074,10 @@ namespace lockfree
         return pinWall->template pin_aux<mo>(elem);
       }
 
-      /// \brief pins a uab::MarkablePointer
+      /// \brief pins a ucl::MarkablePointer
       template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-      typename uab::MarkablePointer<value_type, MARKABLE_BITS>::state_type
-      pin(uab::MarkablePointer<value_type, MARKABLE_BITS>& elem)
+      typename ucl::MarkablePointer<value_type, MARKABLE_BITS>::state_type
+      pin(ucl::MarkablePointer<value_type, MARKABLE_BITS>& elem)
       {
         assert(pinWall);
         return pinWall->template pin_aux<mo>(elem);
@@ -1148,16 +1144,18 @@ namespace lockfree
     // rebind alloc to release entry types
     typedef typename _Alloc::template rebind<size_t>::other size_t_alloc;
     typedef typename _Alloc::template rebind<_T*>::other    tp_alloc;
-    typedef std::vector<size_t, size_t_alloc>               epoch_vector;
-    typedef std::vector<_T*, tp_alloc>                      epoch_ptr_vector;
+    typedef std::vector<size_t>               epoch_vector;
+    typedef std::vector<_T*>                      epoch_ptr_vector;
 
     epoch_vector     epochtime;
     epoch_ptr_vector epochptrs;
 
-    void swap(release_entry<_T, _Alloc>& other)
+    explicit
+    release_entry(size_t timesz = 0)
+    : epochtime(), epochptrs()
     {
-      epochtime.swap(other.epochtime);
-      epochptrs.swap(other.epochptrs);
+      epochtime.reserve(timesz);
+      epochptrs.reserve(timesz);
     }
   };
 
@@ -1172,16 +1170,22 @@ namespace lockfree
     epoch_data<_Tp, _Alloc> const * next;  ///< next thread's data
     std::atomic<size_t>             epoch; ///< odd numbers indicate busy epochs
 
-    size_t                          collepoch;
+    ucl::aligned_type<size_t>       dummy;
+#if UCL_RUNTIME_DATA
+    size_t                          cnt_collects = 0;
+#endif /* UCL_RUNTIME_DATA */
     removal_collection              rmvc;
 
-    size_t reclaimation_increment()
+
+    bool needs_collection()
     {
-      return rmvc.front().epochtime.size() + 8;
+      typename removal_collection::value_type& entry = rmvc.front();
+
+      return entry.epochtime.size() + 8 < entry.epochptrs.size();
     }
 
     epoch_data()
-    : next(nullptr), epoch(1), collepoch(INITIAL_RECLAIMATION_PERIOD), rmvc(1)
+    : next(nullptr), epoch(0), dummy(), rmvc(1)
     {
       assert(!rmvc.empty());
     }
@@ -1252,7 +1256,7 @@ namespace lockfree
     _FwdIter pos = before_aa;
 
     ++pos;
-    while ( pos != zz && !pred(*pos))
+    while ( pos != zz && !pred(*pos) )
     {
       ++pos; ++before_aa;
     }
@@ -1289,7 +1293,8 @@ namespace lockfree
 
   /// \private
   template <class _Alloc>
-  epoch_deallocator<_Alloc> epochDeallocator(_Alloc alloc)
+  epoch_deallocator<_Alloc>
+  epochDeallocator(_Alloc alloc)
   {
     return epoch_deallocator<_Alloc>(alloc);
   }
@@ -1350,7 +1355,6 @@ namespace lockfree
         return base::allocate(n, hint);
       }
 
-
       /// safely loads the content of an atomic variable
       template<std::memory_order mo = std::memory_order_seq_cst>
       value_type* pin(std::atomic<value_type*>& elem)
@@ -1358,10 +1362,10 @@ namespace lockfree
         return _ld<mo>(elem);
       }
 
-      /// safely loads the content of uab::MarkablePointer
+      /// safely loads the content of ucl::MarkablePointer
       template<std::memory_order mo = std::memory_order_seq_cst, size_t MARKBITS>
-      typename uab::MarkablePointer<value_type, MARKBITS>::state_type
-      pin(uab::MarkablePointer<value_type, MARKBITS>& elem)
+      typename ucl::MarkablePointer<value_type, MARKBITS>::state_type
+      pin(ucl::MarkablePointer<value_type, MARKBITS>& elem)
       {
         return _ld<mo>(elem);
       }
@@ -1376,37 +1380,21 @@ namespace lockfree
       /// unpin not needed
       void unpin(value_type*, int) {}
 
-      //~ void node_cleanup(void (*) (value_type&), value_type&)
-      //~ {
-        // \todo ...
-        // is the scenario in pub_scan_manager feasible under an epoch manager?
-        //   T0 (epoch):   removes N0 (predecessor of N1)
-        //   T1 (epoch:    removes N1 and cannot free N1
-        //                ( T2 was active when it acquired N1 and will be active in the
-        //                  same epoch until it finishes its operation ).
-        //   T2 (active): holds a ref to N0 and pins N1 .. OK
-        /* cleanupfun(n); not needed */
-      //~ }
-
-      release_entry<value_type, _Alloc<_Tp> >
-      collect_epochs()
+      void
+      collect_epochs(typename release_entry<value_type, _Alloc<_Tp> >::epoch_vector& res)
       {
         typedef scan_iterator<epoch_data<value_type, _Alloc<_Tp> > > epoch_iterator;
         typedef epoch_data<value_type, _Alloc<_Tp> >                 epoch_data_t;
-        typedef release_entry<value_type, _Alloc<_Tp> >              release_entry_t;
 
-        epoch_data_t*    curr = allepochData.load(std::memory_order_relaxed);
-        epoch_iterator   end(nullptr);
-        release_entry_t res;
+        epoch_data_t*   curr = allepochData.load(std::memory_order_relaxed);
+        epoch_iterator  end(nullptr);
 
         // load all epochs
         for (epoch_iterator pos(curr); pos != end; ++pos)
         {
           // \mo we load relaxed; the global barrier must have been seen before
-          res.epochtime.push_back((*pos).epoch.load(std::memory_order_relaxed));
+          res.push_back((*pos).epoch.load(std::memory_order_relaxed));
         }
-
-        return res;
       }
 
       void
@@ -1444,19 +1432,30 @@ namespace lockfree
       ///         Frees all memory that can no longer be referenced by other threads.
       void release_memory()
       {
+        typedef release_entry<value_type, _Alloc<_Tp> > release_entry_t;
+
         assert(epochdata);
+
+#if UCL_RUNTIME_DATA
+        ++epochdata->cnt_collects;
+#endif /* UCL_RUNTIME_DATA */
 
         // syncs with thread fence in the epoch counter
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         // collect all epochs and add current epoch to list
-        push_curr_list(collect_epochs());
+        release_entry_t& curr_entry = epochdata->rmvc.front();
+
+        collect_epochs(curr_entry.epochtime);
+
+        // get current clock size
+        const size_t     current_clock_size = curr_entry.epochtime.size();
 
         // use the epochs to clear old memory
         free_unreferenced_memory();
 
         // add a new entry for the next epoch
-        epochdata->rmvc.push_front( release_entry<value_type, _Alloc<_Tp> >() );
+        epochdata->rmvc.emplace_front( current_clock_size );
       }
 
       /// releases all memory
@@ -1464,15 +1463,15 @@ namespace lockfree
       {
         assert(epochdata);
 
-        typedef epoch_data<value_type, _Alloc<_Tp> >          epoch_data_t;
-        typedef typename epoch_data_t::removal_collection     removal_collection;
+        typedef epoch_data<value_type, _Alloc<_Tp> >      epoch_data_t;
+        typedef typename epoch_data_t::removal_collection removal_collection;
 
         removal_collection& rmvc = epochdata->rmvc;
 
         std::for_each(rmvc.begin(), rmvc.end(), epochDeallocator(base::get_allocator()));
 
         rmvc.clear();
-        rmvc.push_front( release_entry<value_type, _Alloc<_Tp> >() );
+        rmvc.emplace_front( 0 );
       }
 
       /// \brief  returns whether releasable memory blocks were held back
@@ -1517,17 +1516,15 @@ namespace lockfree
         // \mo release in order to prevent reordering with preceding operations.
         epochdata->epoch.store(epochval, std::memory_order_release);
 
-        if (epochval >= epochdata->collepoch)
+        if (epochdata->needs_collection())
         {
           release_memory();
-          epochdata->collepoch += 8*epochdata->reclaimation_increment();
+          // epochdata->collepoch += 8*epochdata->reclaimation_increment();
           // std::cout << epochdata->collepoch << std::endl;
         }
       }
 
-      /// \brief starts an operation and creates a data entry for the epoch managers if needed
-      /// \param dummy parameter to provide consistent interface with other managers
-      void beginop(size_t, unordered)
+      void initialize_if_needed(size_t = 0)
       {
         typedef epoch_data<value_type, _Alloc<_Tp> > epoch_data_t;
 
@@ -1544,21 +1541,19 @@ namespace lockfree
           } while (!allepochData.compare_exchange_weak(curr, epochdata, std::memory_order_release, std::memory_order_relaxed)); // \mo
           return ;
         }
+      }
+
+      /// \brief starts an operation and creates a data entry for the epoch managers if needed
+      /// \param dummy parameter to provide consistent interface with other managers
+      void beginop(size_t)
+      {
+        initialize_if_needed();
 
         // \mo this thread updates its own epoch, thus we can use relaxed
         size_t epochval = epochdata->epoch.load(std::memory_order_relaxed) + 1;
 
         assert(active(epochval)); // entering an operation
-
-        // \mo intra thread dependency
-        epochdata->epoch.store(epochval, std::memory_order_relaxed);
-      }
-
-      void beginop(size_t sz)
-      {
-        beginop(sz, unordered());
-
-        std::atomic_thread_fence(std::memory_order_seq_cst);
+        epochdata->epoch.store(epochval, std::memory_order_seq_cst);
       }
 
       void deallocate(value_type* entry, int)
@@ -1568,9 +1563,10 @@ namespace lockfree
         epochdata->rmvc.front().epochptrs.push_back(entry);
       }
 
-    private:
+    // private:
       /// creates new storage for a Thread, unless the
       typedef std::atomic<epoch_data<value_type, _Alloc<_Tp> >*> epoch_wall_type;
+      typedef epoch_data<value_type, _Alloc<_Tp> >               epoch_data_rec_t;
 
       static epoch_wall_type                                     allepochData;
       static thread_local epoch_data<value_type, _Alloc<_Tp>>*   epochdata;
@@ -1584,6 +1580,34 @@ namespace lockfree
   thread_local
   epoch_data<typename epoch_manager<_Tp, _Alloc>::value_type, _Alloc<_Tp> >*
   epoch_manager<_Tp, _Alloc>::epochdata(nullptr);
+
+#if UCL_RUNTIME_DATA
+  template <class Alloc>
+  static inline
+  void log_epoch_telemetry(std::ostream& os, Alloc)
+  {
+    typedef typename Alloc::epoch_data_rec_t epoch_data_rec_t;
+
+    const epoch_data_rec_t* curr = Alloc::allepochData.load();
+    size_t        x              = 0;
+    size_t        total_collects = 0;
+
+    while (curr != nullptr)
+    {
+      total_collects += curr->cnt_collects;
+
+      os << ":: e" << (++x)
+         << "  [" << curr->cnt_collects << "]"
+         << std::endl;
+
+      curr = curr->next;
+    }
+
+    os << "** etotals: " << total_collects
+       << std::endl;
+  }
+#endif /* UCL_RUNTIME_DATA */
+
 }
 
 #endif /* _PMEMORY_HPP */

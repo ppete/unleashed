@@ -706,7 +706,7 @@ namespace lockfree
   template <class _Tp, class _Alloc>
   class skiplist_node
   {
-      typedef uab::MarkablePointer<skiplist_node<_Tp, _Alloc>>            node_ptr;
+      typedef ucl::MarkablePointer<skiplist_node<_Tp, _Alloc>>            node_ptr;
       typedef std::allocator_traits<_Alloc>                               _OrigAlloc_traits;
       typedef typename _OrigAlloc_traits::template rebind_alloc<node_ptr> _NodePtr_alloc_type;
 
@@ -753,7 +753,7 @@ namespace lockfree
            >
   class skiplist
   {
-      typedef typename uab::MarkablePointer<skiplist_node<_Tp,_Alloc>*>::mark_type mark_type;
+      typedef typename ucl::MarkablePointer<skiplist_node<_Tp,_Alloc>*>::mark_type mark_type;
 
     public:
       static const int MAXLEVEL  = _MAXLVL;

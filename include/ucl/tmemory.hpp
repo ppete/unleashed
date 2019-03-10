@@ -5,7 +5,6 @@
 ///            and Herlihy et al.'s repeated offender implementation.
 ///            This technique implies sequentially consistent reads of pointers/elements.
 /// \author  Peter Pirkelbauer
-/// \email   pirkelbauer@uab.edu
 
 #ifndef _TMEMORY_HPP
 
@@ -91,10 +90,10 @@ namespace lockfree
 
   template <std::memory_order mo, class _Tp, size_t MARKABLE_BITS>
   static inline
-  typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-  _ld(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
+  typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+  _ld(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
   {
-    //~ return typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
+    //~ return typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
     return elem.state(mo);
   }
 
@@ -107,7 +106,7 @@ namespace lockfree
 
   template <class _Tp, class _MARKTYPE>
   static inline
-  // _Tp* _ptr(typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
+  // _Tp* _ptr(typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
   _Tp* _ptr(std::pair<_Tp*, _MARKTYPE> state)
   {
     return state.first;
@@ -195,10 +194,10 @@ namespace lockfree
         return _ld<mo>(elem);
       }
 
-      /// pins a uab::MarkablePointer
+      /// pins a ucl::MarkablePointer
       template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-      typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-      pin(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
+      typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+      pin(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
       {
         return _ld<mo>(elem);
       }
@@ -583,7 +582,7 @@ namespace lockfree
   static inline
   size_t threshold(size_t len)
   {
-    return len * uab::bsr32(len+1);
+    return len * ucl::bsr32(len+1);
   }
 
   /// \brief   Allocator implementing a publish and scan memory manager
@@ -784,10 +783,10 @@ namespace lockfree
         }
       }
 
-      /// \brief pins a uab::MarkablePointer
+      /// \brief pins a ucl::MarkablePointer
       template <std::memory_order mo = std::memory_order_seq_cst, size_t MARKABLE_BITS>
-      typename uab::MarkablePointer<value_type, MARKABLE_BITS>::state_type
-      pin(uab::MarkablePointer<value_type, MARKABLE_BITS>& elem)
+      typename ucl::MarkablePointer<value_type, MARKABLE_BITS>::state_type
+      pin(ucl::MarkablePointer<value_type, MARKABLE_BITS>& elem)
       {
         assert(pinWall);
         return pinWall->template pin_aux<mo>(elem);

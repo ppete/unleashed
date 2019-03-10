@@ -9,9 +9,9 @@
 #include <mutex>
 #include <cassert>
 
-// #include "locks.hpp"
+#include "ucl/locks.hpp"
 
-#include "low-power-hpc-locks.hpp"
+//~ #include "ucl/low-power-hpc-locks.hpp"
 
 #ifndef NUM_ITER
 #define NUM_ITER 1000000
@@ -21,11 +21,11 @@
 #define NUM_THREADS 4
 #endif /* NUM_THREADS */
 
-#ifdef UAB_LOW_POWER
+#ifdef UNLEASHED_LOW_POWER
 namespace locks = low_power;
 #else
-namespace locks = uab;
-#endif
+namespace locks = ucl;
+#endif /* UNLEASHED_LOW_POWER */
 
 #if defined TEST_ANDERSON
   typedef locks::anderson_lock<NUM_THREADS * 2> default_lock;
@@ -187,4 +187,3 @@ int main(int argc, char** args)
   }
   return 0;
 }
-

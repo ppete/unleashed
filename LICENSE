@@ -1,13 +1,19 @@
 
 With the exception of benchmark codes that originate from the Barcelona OpenMP
-Test suite (BOTS) and are listed below, Blaze is distributed under the BSD license.
+Test suite (BOTS) and are listed below, the Unleashed Concurrency Library (UCL) 
+is distributed under the BSD license below.
 
-***
-* Copyright (c) 2015, 2016, 2017, 2018 University of Alabama at Birmingham
-* Written by Peter Pirkelbauer (pirkelbauer at uab dot edu).
+*****
+* Copyright (c) 2019, LLNL
+* Copyright (c) 2015-2018, University of Alabama at Birmingham
+*
+* Written by Peter Pirkelbauer
 *
 * All rights reserved.
-***
+*****
+
+
+*** BSD License
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 

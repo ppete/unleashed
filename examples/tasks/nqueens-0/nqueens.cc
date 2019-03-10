@@ -1,11 +1,13 @@
 /**
  * A simple implementation to solve the NQueens Problem
  *
- * (c) Peter Pirkelbauer (UAB) - 2018
+ * Implementer: Peter Pirkelbauer
  */
 
 /**
- * This program is part of the Blaze-Task Test Suite
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
  * All rights reserved.
@@ -46,7 +48,7 @@
 
 #include "../common/common-includes.hpp"
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 #ifndef NUMTHREADS
 #define NUMTHREADS (20)
@@ -131,53 +133,21 @@ size_t thread_num()
   return omp_get_thread_num();
 }
 
-#if PRINT_STATS
-
-typedef std::pair<size_t, size_t> result_t;
-
-static inline
-size_t& result(uab::aligned_type<result_t, CACHELINESZ>& v)
-{
-  return v.val.first;
-}
-
-static inline
-size_t& count(uab::aligned_type<result_t, CACHELINESZ>& v)
-{
-  return v.val.second;
-}
-
-#else
-
-typedef size_t result_t;
-
-static inline
-size_t& result(uab::aligned_type<result_t, CACHELINESZ>& v)
-{
-  return v.val;
-}
-
-#endif /* PRINT_STATS */
+size_t partialresult;
+#pragma omp threadprivate(partialresult)
 
 template <size_t N>
-void compute_nqueens(board<N> task, uab::aligned_type<result_t, CACHELINESZ>* s)
+void compute_nqueens(board<N> task)
 {
-  const size_t thrnum = thread_num();
-
   for (;;)
   {
-
-#if PRINT_STATS
-    ++(count(s[thrnum]));
-#endif
-
     // check if last added queen is valid
     if (!isValid(task)) return;
 
     // if board is full
     if (isComplete(task))
     {
-      ++(result(s[thrnum]));
+      ++partialresult;
       return;
     }
 
@@ -189,7 +159,7 @@ void compute_nqueens(board<N> task, uab::aligned_type<result_t, CACHELINESZ>* s)
       ++newtask.rows;
 
       #pragma omp task if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
-      compute_nqueens(newtask, s);
+      compute_nqueens(newtask);
     }
 
     task.queens[task.rows] = 0;
@@ -197,36 +167,24 @@ void compute_nqueens(board<N> task, uab::aligned_type<result_t, CACHELINESZ>* s)
   }
 }
 
+
 template <size_t N>
-size_t nqueens_task()
+size_t nqueens_task(size_t numthreads)
 {
-  uab::aligned_type<result_t, CACHELINESZ> s[NUMTHREADS];
-  size_t                                   res  = 0;
-  board<N>                                 brd;
+  size_t    res  = 0;
+  board<N>  brd;
 
-  omp_set_num_threads(NUMTHREADS);
-
-  #pragma omp parallel firstprivate(brd) shared(res,s)
+  #pragma omp parallel num_threads(numthreads) firstprivate(brd) shared(res)
   {
-    size_t thrnum = thread_num();
-
-    assert(thrnum < NUMTHREADS);
-    s[thrnum] = result_t();
-
     #pragma omp single
     #pragma omp taskgroup
     {
-      compute_nqueens(brd, s);
+      compute_nqueens(brd);
     }
 
     #pragma omp atomic
-    res += result(s[thrnum]);
+    res += partialresult;
   }
-
-#if PRINT_STATS
-  for (size_t i = 0; i < NUMTHREADS; ++i)
-    std::cout << i << ": " << count(s[i]) << std::endl;
-#endif
 
   return res;
 }
@@ -236,7 +194,7 @@ size_t nqueens_task()
 
 template <class G, size_t N>
 void
-compute_nqueens(G& taskgroup, board<N> task, uab::simple_reducer<size_t>& reducer)
+compute_nqueens(G& taskgroup, board<N> task, ucl::simple_reducer<size_t>& reducer)
 {
   for (;;)
   {
@@ -256,8 +214,8 @@ compute_nqueens(G& taskgroup, board<N> task, uab::simple_reducer<size_t>& reduce
       if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
         taskgroup.run( [&taskgroup, newtask, &reducer]()->void
                      { compute_nqueens(taskgroup, newtask, reducer);
-                   }
-                 );
+                     }
+                   );
       else
         compute_nqueens(taskgroup, newtask, reducer);
     }
@@ -268,12 +226,12 @@ compute_nqueens(G& taskgroup, board<N> task, uab::simple_reducer<size_t>& reduce
 }
 
 template <size_t N>
-size_t nqueens_task()
+size_t nqueens_task(size_t numthreads)
 {
-  tbb::task_scheduler_init init(NUMTHREADS);
-  tbb::task_group          g;
-  uab::simple_reducer<size_t> reducer;
-  board<N>                 brd;
+  tbb::task_scheduler_init    init(numthreads);
+  tbb::task_group             g;
+  ucl::simple_reducer<size_t> reducer;
+  board<N>                    brd;
 
   compute_nqueens(g, brd, reducer);
 
@@ -284,18 +242,6 @@ size_t nqueens_task()
 #endif /* TBB_VERSION */
 
 #if CILK_VERSION
-
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
 
 
 template <size_t N>
@@ -317,7 +263,7 @@ void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
       ++newtask.rows;
 
       if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
-      cilk_spawn compute_nqueens(sum, newtask);
+        cilk_spawn compute_nqueens(sum, newtask);
       else
         compute_nqueens(sum, newtask);
     }
@@ -328,9 +274,9 @@ void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
 }
 
 template <size_t N>
-size_t nqueens_task()
+size_t nqueens_task(size_t numthreads)
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
 
   cilk::reducer_opadd<size_t> sum;
   board<N>                    brd;
@@ -390,10 +336,10 @@ aligned_t compute_nqueens(void* qtsk)
       ++newtask.rows;
 
       if ((CUTOFF == PROBLEM_SIZE) || (newtask.rows < CUTOFF))
-      qthread_fork( compute_nqueens<N>,
-                    new qtask<N>{ newtask, task.sinc},
-                    nullptr
-                  );
+        qthread_fork( compute_nqueens<N>,
+                      new qtask<N>{ newtask, task.sinc},
+                      nullptr
+                    );
       else
       {
         compute_nqueens<N>(new qtask<N>{ newtask, task.sinc});
@@ -415,7 +361,7 @@ void reduce(void* target, const void* source)
 }
 
 template <size_t N>
-size_t nqueens_task()
+size_t nqueens_task(size_t)
 {
   size_t     result = 0;
   qt_sinc_t* sinc   = qt_sinc_create(sizeof(size_t), &result, reduce<size_t>, 0);
@@ -432,7 +378,7 @@ size_t nqueens_task()
 
 
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
 struct compute_nqueens
 {
@@ -469,14 +415,12 @@ struct compute_nqueens
 };
 
 template <size_t N>
-size_t nqueens_task()
+size_t nqueens_task(size_t numthreads)
 {
-  board<N> brd;
-
-  return uab::execute_tasks(NUMTHREADS, compute_nqueens(), brd);
+  return ucl::execute_tasks_x(numthreads, compute_nqueens(), board<N>());
 }
 
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
 #if SEQUENTIAL_VERSION
 template <size_t N>
@@ -518,20 +462,24 @@ size_t nqueens_seq()
 #endif /* SEQUENTIAL_VERSION */
 
 
-int main()
+int main(int argc, char** args)
 {
-#if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
-#endif /* QTHREADS_VERSION */
-
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
+
+  size_t   num_threads = NUMTHREADS;
+
+  if (argc > 1) num_threads = aux::as<size_t>(*(args+1));
+
+#if QTHREADS_VERSION
+  init_qthreads(num_threads);
+#endif
 
   time_point     starttime = std::chrono::system_clock::now();
 
   // executes loop in parallel
   //   and uses a reduction algorithm to combine all pi values that were
   //   computed across threads.
-  size_t num  = nqueens_task<PROBLEM_SIZE>();
+  size_t num  = nqueens_task<PROBLEM_SIZE>(num_threads);
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();

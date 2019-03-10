@@ -1,5 +1,5 @@
 /// \file htm-skiplist.hpp
-/// \author Peter Pirkelbauer (pirkelbauer@uab.edu)
+/// \author Peter Pirkelbauer 
 ///
 /// \brief A transactional skiplist that can be customized using various
 ///        memory management techniques for HTM (see htm-memory.hpp ).

@@ -1,32 +1,28 @@
 
-# Output directory
-ifeq ($(OUTPUTDIR),)
-  OUTPUTDIR=./tmp
-endif
+include ../make-util/discover-toolset.mk
 
-include discover-flags.mk
+# Output directory
+OUTPUTDIR ?= ./tmp
+
 
 # set default test, if not set
 #
 # TEST_NAME = TEST_NO_MANAGER TEST_EPOCH_MANAGER TEST_PUB_SCAN_MANAGER TEST_GC_MANAGER
-#             TEST_STD_LOCKGUARD TEST_UAB_LOCKGUARD TEST_UAB_ELIDEGUARD
+#             TEST_STD_LOCKGUARD TEST_UNLEASHED_LOCKGUARD TEST_UNLEASHED_ELIDEGUARD
 #
 
-ifeq ($(TEST_NAME),)
-  TEST_NAME=TEST_EPOCH_MANAGER
-endif
+TEST_NAME ?= TEST_EPOCH_MANAGER
 
 # libraries
 
-SOURCE=stackTester.cc
-TARGET=$(SOURCE:.cc=.bin)
+SOURCE := testStack.cc
+TARGET := $(SOURCE:.cc=.bin)
 
-EXTRAFLAGS=-D$(TEST_NAME)=1
-INCLUDES=$(BLAZE_HOME)/include
-LIBS=
+EXTRAFLAGS := -D$(TEST_NAME)=1
+INCLUDE := $(UCL_HOME)/include
+LIBS :=
 
-#~ CXXFLAGS=-std=c++11 -Wall -Wextra -pedantic -ggdb -Og $(INSTRSET) -DNDEBUG=1 $(THREADFLAG) $(TXFLAG)
-CXXFLAGS=-std=c++11 -Wall -Wextra -pedantic -O2 $(INSTRSET) -DNDEBUG=1 $(THREADFLAG) $(TXFLAG)
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 ifeq ($(TEST_NAME),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -44,8 +40,8 @@ endif
 
 test: $(OUTPUTDIR)/$(TARGET)
 
-$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(BLAZE_HOME)/include/stack.hpp Makefile.stack
-	$(CXX) $(CXXFLAGS) $(EXTRAFLAGS) -I$(INCLUDES) $< $(LIBS) -o $@
+$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(UCL_HOME)/include/ucl/stack.hpp Makefile.stack
+	$(CXX) $(CXXFLAGS) $(EXTRAFLAGS) -I$(INCLUDE) $< $(LIBS) -o $@
 
 clean:
 	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)

@@ -1,8 +1,10 @@
 /*
- * Code modified to run with the BLAZE task framework
+ * Code modified to run with the UCL task framework
  *
- * Peter Pirkelbauer, 2018
- * UAB - University of Alabama at Birmingham
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
+ * Copyright (c) 2018, University of Alabama at Birmingham
  */
 
 /**********************************************************************************************/
@@ -64,7 +66,7 @@ struct cell {
 };
 
 typedef std::shared_ptr<cell> cell_ptr;
-//~ typedef uab::counted_array<cell> cell_ptr;
+//~ typedef ucl::counted_array<cell> cell_ptr;
 
 static cell*             gcells;
 static std::atomic<int>  MIN_AREA;
@@ -213,9 +215,9 @@ static void write_outputs() {
 }
 
 
-#ifdef BLAZE_VERSION
+#ifdef UCL_VERSION
 
-typedef uab::Void result_type;
+typedef ucl::Void result_type;
 // typedef size_t result_type;
 
 struct floorplan_task
@@ -314,10 +316,10 @@ template <class Pool>
 static
 auto compute_task(Pool& p, floorplan_task t) -> result_type
 {
-  cell*                    cells = new cell[N+1];
+  cell*    cells = new cell[N+1];
   cell_ptr cellptr(cells);
-  ibrd                     board;
-  coor                     footprint;
+  ibrd     board;
+  coor     footprint;
 
   memcpy(cells, t.CELLS.get(), sizeof(cell)*(N+1));
 
@@ -392,26 +394,22 @@ static inline
 void print(size_t res)       { std::cerr << res << std::endl; }
 
 static inline
-void print(const uab::Void&) { }
+void print(const ucl::Void&) { }
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
 {
   cell_ptr ptr(CELLS);
 
-  result_type res = uab::execute_tasks( NUMTHREADS,
-                      TaskHandler(),
-                      floorplan_task( id,
-                                      FOOTPRINT,
-                                      BOARD,
-                                      ptr
-                                    )
-                    );
+  result_type res = ucl::execute_tasks_x( numthreads,
+                                          TaskHandler(),
+                                          floorplan_task(id, FOOTPRINT, BOARD, ptr)
+                                        );
 
   print(res);
 }
 
-#endif /* BLAZE_TASK */
+#endif /* UCL_VERSION */
 
 #ifdef OMP_VERSION
 
@@ -451,10 +449,10 @@ void add_cell_task(floorplan_task t);
 static
 void compute_task(floorplan_task t)
 {
-  cell*                    cells = new cell[N+1];
+  cell*    cells = new cell[N+1];
   cell_ptr cellptr(cells);
-  ibrd                     board;
-  coor                     footprint;
+  ibrd     board;
+  coor     footprint;
 
   memcpy(cells, t.CELLS.get(), sizeof(cell)*(N+1));
 
@@ -533,13 +531,11 @@ void add_cell_task(floorplan_task task)
 }
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
 {
-  omp_set_num_threads(NUMTHREADS);
-
   cell_ptr ptr(CELLS);
 
-  #pragma omp parallel firstprivate(id, FOOTPRINT, BOARD, ptr)
+  #pragma omp parallel num_threads(numthreads) firstprivate(id, FOOTPRINT, BOARD, ptr)
   #pragma omp single
   {
     #pragma omp taskgroup
@@ -589,10 +585,10 @@ void add_cell_task(tbb::task_group& g, floorplan_task t);
 static
 void compute_task(tbb::task_group& g, floorplan_task t)
 {
-  cell*                    cells = new cell[N+1];
+  cell*    cells = new cell[N+1];
   cell_ptr cellptr(cells);
-  ibrd                     board;
-  coor                     footprint;
+  ibrd     board;
+  coor     footprint;
 
   memcpy(cells, t.CELLS.get(), sizeof(cell)*(N+1));
 
@@ -671,10 +667,10 @@ void add_cell_task(tbb::task_group& g, floorplan_task task)
 
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
 {
   cell_ptr                 ptr(CELLS);
-  tbb::task_scheduler_init init(NUMTHREADS);
+  tbb::task_scheduler_init init(numthreads);
   tbb::task_group          g;
 
   add_cell_task(g, floorplan_task(id, FOOTPRINT, BOARD, ptr));
@@ -721,7 +717,7 @@ void add_cell_task(floorplan_task t);
 // \note count tasks
 // static
 // void add_cell_task(floorplan_task t, cilk::reducer_opadd<size_t>& sum);
-// 
+//
 // static
 // void compute_task(floorplan_task t, cilk::reducer_opadd<size_t>& sum)
 
@@ -818,23 +814,11 @@ void add_cell_task(floorplan_task task)
   // sum+=1;
 }
 
-static
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) == 0;
-  assert(success);
-}
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
   //   cilk::reducer_opadd<size_t> sum;
 
   add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, CELLS));
@@ -898,11 +882,11 @@ void add_cell_task(floorplan_task task);
 static
 aligned_t compute_task(void* qtsk)
 {
-  floorplan_task&          t = *reinterpret_cast<floorplan_task*>(qtsk);
-  cell*                    cells = new cell[N+1];
+  floorplan_task&   t = *reinterpret_cast<floorplan_task*>(qtsk);
+  cell*             cells = new cell[N+1];
   cell_ptr          cellptr(cells);
-  ibrd                     board;
-  coor                     footprint;
+  ibrd              board;
+  coor              footprint;
 
   memcpy(cells, t.CELLS.get(), sizeof(cell)*(N+1));
 
@@ -988,10 +972,10 @@ void add_cell_task(floorplan_task task)
 
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t /*numthreads*/)
 {
   cell_ptr    ptr(CELLS);
-  qt_sinc_t*               sinc   = qt_sinc_create(0, nullptr, nullptr, 0);
+  qt_sinc_t*  sinc   = qt_sinc_create(0, nullptr, nullptr, 0);
 
   add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, sinc, ptr));
   qt_sinc_wait(sinc, nullptr);
@@ -1000,7 +984,7 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS)
 
 #endif /* QTHREADS_VERSION */
 
-#ifdef BOTS_VERSION
+#ifdef WOMP_VERSION
 
 // \note original code returns the number of explored solutions; since we do not
 //       compute those in the task based model, we also do not compute the
@@ -1079,11 +1063,9 @@ _end:;
 
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, struct cell *CELLS)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, struct cell *CELLS, size_t numthreads)
 {
-    omp_set_num_threads(NUMTHREADS);
-
-    #pragma omp parallel
+    #pragma omp parallel num_threads(numthreads) firstprivate(id, FOOTPRINT, BOARD)
     #pragma omp single
     #pragma omp taskgroup
     {
@@ -1091,7 +1073,7 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, struct cell *CELLS)
     }
 }
 
-#endif /* BOTS_VERSION */
+#endif /* WOMP_VERSION */
 
 
 
@@ -1103,7 +1085,7 @@ void floorplan_init (const char *filename)
 
     inputFile = fopen(filename, "r");
 
-    if(NULL == inputFile) {
+    if (NULL == inputFile) {
         std::cerr << "Couldn't open " << filename << "file for reading" << std::endl;
         exit(1);
     }
@@ -1117,7 +1099,7 @@ void floorplan_init (const char *filename)
     for (j = 0; j < COLS; j++) board[i][j] = 0;
 }
 
-void compute_floorplan (void)
+void compute_floorplan(size_t numthreads)
 {
     coor footprint;
     /* footprint of initial board is zero */
@@ -1125,7 +1107,7 @@ void compute_floorplan (void)
     footprint[1] = 0;
     bots_message("Computing floorplan ");
 
-    add_cell_start(1, footprint, board, gcells);
+    add_cell_start(1, footprint, board, gcells, numthreads);
 
     bots_message(" completed!\n");
 }
@@ -1148,20 +1130,22 @@ int main(int argc, char** argv)
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
+  size_t      num_threads = NUMTHREADS;
   std::string inputfile = "data/input.15";
 
-  if (argc > 1) inputfile = argv[1];
+  if (argc > 1) num_threads = aux::as<size_t>(*(argv+1));
+  if (argc > 2) inputfile = argv[2];
 
   std::cout << "loading " << inputfile << std::endl;
 
   floorplan_init(inputfile.c_str());
 
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS, 20000);
+  init_qthreads(num_threads, 20000);
 #endif /* QTHREADS_VERSION */
 
   time_point     starttime = std::chrono::system_clock::now();
-  compute_floorplan();
+  compute_floorplan(num_threads);
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 

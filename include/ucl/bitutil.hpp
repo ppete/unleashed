@@ -3,14 +3,14 @@
 /// \brief This file provides a collections of functions to perform
 ///        bit level manipulations of integers.
 ///
-/// \author pirkelbauer@uab.edu (Peter Pirkelbauer)
+/// \author Peter Pirkelbauer
 
 #ifndef _BITUTIL_HPP_
 #define _BITUTIL_HPP_
 
 #include <cassert>
 
-namespace uab
+namespace ucl
 {
 #ifdef _MSC_VER
   __inline __declspec(naked) int __fastcall bsr32 (size_t)
@@ -99,6 +99,6 @@ namespace uab
   #undef BX_
   /// \endcond
 #endif /* __GNUC__ */
-}  // namespace uab
+}  // namespace ucl
 
 #endif /* _BITUTIL_HPP_ */

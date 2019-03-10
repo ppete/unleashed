@@ -1,8 +1,10 @@
 /*
- * Code modified to run with the BLAZE task framework
+ * Code modified to run with the UCL task framework
  *
- * Peter Pirkelbauer, 2018
- * UAB - University of Alabama at Birmingham
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
+ * Copyright (c) 2018, University of Alabama at Birmingham
  */
 
 
@@ -76,7 +78,7 @@
 
 #include "../common/common-includes.hpp"
 #include "../common/bots.hpp"
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 //~ #include "app-desc.h"
 //~ #include "bots.h"
@@ -191,7 +193,7 @@ int uts_numChildren(Node *parent)
  * Recursive depth-first implementation                    *
  ***********************************************************/
 
-#if BOTS_VERSION
+#if WOMP_VERSION
 
 count_t parTreeSearch(int depth, Node *parent, int numChildren)
 {
@@ -211,7 +213,7 @@ count_t parTreeSearch(int depth, Node *parent, int numChildren)
 
      child->numChildren = uts_numChildren(child);
 
-     #pragma omp task untied firstprivate(depth, i, child) shared(partialCount)
+     #pragma omp task untied firstprivate(i, depth, child) shared(partialCount)
      partialCount[i] = parTreeSearch(depth+1, child, child->numChildren);
   }
 
@@ -229,31 +231,26 @@ count_t parTreeSearch(int depth, Node *parent, int numChildren)
 
 count_t parallel_uts(Node* root, size_t numthreads)
 {
-   omp_set_num_threads(numthreads);
-
    count_t num_nodes = 0 ;
    root->numChildren = uts_numChildren(root);
 
-   #pragma omp parallel
+   #pragma omp parallel num_threads(numthreads)
       #pragma omp single nowait
       #pragma omp task untied
       num_nodes = parTreeSearch( 0, root, root->numChildren );
 
    return num_nodes;
 }
-#endif /* BOTS_VERSION */
+#endif /* WOMP_VERSION */
 
 #if OMP_VERSION
 
-typedef uab::aligned_type<count_t, CACHELINESZ> accumulator_t;
+typedef ucl::aligned_type<count_t, CACHELINESZ> accumulator_t;
 
-static inline
-size_t thread_num()
-{
-  return omp_get_thread_num();
-}
+count_t partialresult;
+#pragma omp threadprivate(partialresult)
 
-void parTreeSearch(int depth, Node* parent, int numChildren, accumulator_t* sum)
+void parTreeSearch(int depth, Node* parent, int numChildren)
 {
   // Recurse on the children
   for (int i = 0; i < numChildren; ++i)
@@ -270,38 +267,40 @@ void parTreeSearch(int depth, Node* parent, int numChildren, accumulator_t* sum)
 
      nodePtr->numChildren = uts_numChildren(nodePtr);
 
-     #pragma omp task untied firstprivate(depth, nodePtr, sum)
-     parTreeSearch(depth+1, nodePtr, nodePtr->numChildren, sum);
+     #pragma omp task firstprivate(depth, nodePtr)
+     parTreeSearch(depth+1, nodePtr, nodePtr->numChildren);
   }
 
   delete parent;
-  ++sum[thread_num()].val;
+  ++partialresult;
 }
 
 
 count_t parallel_uts (Node* root, size_t numthreads)
 {
-   omp_set_num_threads(NUMTHREADS);
-
    count_t num_nodes = 0;
-   accumulator_t      sum[NUMTHREADS];
 
    root->numChildren = uts_numChildren(root);
 
-   #pragma omp parallel firstprivate(root) shared(sum)
+   #pragma omp parallel num_threads(numthreads) firstprivate(root) shared(num_nodes)
    {
-      #pragma omp single nowait
-      #pragma omp taskgroup
-      parTreeSearch( 0, root, root->numChildren, sum );
-   }
+      partialresult = 0;
 
-   while (numthreads) num_nodes += sum[--numthreads].val;
+      #pragma omp single
+      #pragma omp taskgroup
+      {
+        parTreeSearch( 0, root, root->numChildren );
+      }
+
+      #pragma omp atomic
+      num_nodes += partialresult;
+   }
 
    return num_nodes;
 }
 #endif /* OMP_VERSION */
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
 struct par_tree_task
 {
@@ -344,30 +343,15 @@ count_t parallel_uts (Node* root, size_t numthreads)
 {
    root->numChildren = uts_numChildren(root);
 
-   return uab::execute_tasks( numthreads,
-                              par_tree_search(),
-                              par_tree_task { 0, root, root->numChildren }
-                            );
+   return ucl::execute_tasks_x( numthreads,
+                                par_tree_search(),
+                                par_tree_task { 0, root, root->numChildren }
+                              );
 }
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
 
 #if CILK_VERSION
-
-void cilk_init(int workers, std::string stacksz)
-{
-  assert(workers <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", workers);
-
-  bool stackset = __cilkrts_set_param("stack size", stacksz.c_str()) == 0;
-  assert(stackset);
-
-  bool success = __cilkrts_set_param("nworkers", str) == 0;
-  assert(success);
-}
 
 void
 cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum, Node* children);
@@ -492,7 +476,7 @@ count_t parallel_uts (Node* root, size_t /* numthreads */)
 
 template <class G>
 void
-par_tree_search(G& g, int depth, Node* parent, int numChildren, uab::simple_reducer<count_t>& sum)
+par_tree_search(G& g, int depth, Node* parent, int numChildren, ucl::simple_reducer<count_t>& sum)
 {
   // Recurse on the children
   for (int i = 0; i < numChildren; ++i)
@@ -522,9 +506,9 @@ par_tree_search(G& g, int depth, Node* parent, int numChildren, uab::simple_redu
 
 count_t parallel_uts(Node* root, size_t numthreads)
 {
-  tbb::task_scheduler_init     init(numthreads);
-  tbb::task_group              g;
-  uab::simple_reducer<count_t> reducer;
+  tbb::task_scheduler_init           init(numthreads);
+  tbb::task_group                    g;
+  ucl::simple_reducer<count_t> reducer;
 
   root->numChildren = uts_numChildren(root);
 
@@ -598,7 +582,8 @@ int uts_check_result ( count_t num_tasks )
   if ( num_tasks != exp_tree_size )
   {
     answer = BOTS_RESULT_UNSUCCESSFUL;
-    bots_message("Incorrect tree size (%llu instead of %llu).\n", num_tasks, exp_tree_size);
+    std::cerr << "Incorrect tree size (" << num_tasks << " instead of " << exp_tree_size << ")."
+              << std::endl;
   }
 
   return answer;
@@ -609,21 +594,23 @@ int main(int argc, char** argv)
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
+  size_t      num_threads = NUMTHREADS;
   std::string inputfile = "data/medium.input";
   Node*       root = new Node;
 
-  if (argc > 1) inputfile = argv[1];
+  if (argc > 1) num_threads = aux::as<size_t>(*(argv+1));
+  if (argc > 2) inputfile = argv[2];
 
   std::cout << "loading " << inputfile << std::endl;
   uts_read_file(inputfile.c_str());
   uts_initRoot(root);
 
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
+  init_qthreads(num_threads);
 #endif /* QTHREADS_VERSION */
 
   time_point starttime   = std::chrono::system_clock::now();
-  count_t    solpar      = parallel_uts(root, NUMTHREADS);
+  count_t    solpar      = parallel_uts(root, num_threads);
   time_point endtime     = std::chrono::system_clock::now();
   int        elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 

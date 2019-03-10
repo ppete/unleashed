@@ -1,7 +1,6 @@
 /// \file htm.hpp
-/// \brief Abstracts Hardware Transactional Memory Primitives for x86 and Power
-/// \author  Peter Pirkelbauer ( pirkelbauer@uab.edu )
-
+/// \brief Abstracts hardware transactional memory primitives for x86 and Power
+/// \author  Peter Pirkelbauer
 #ifndef _HTM_HPP
 #define _HTM_HPP 1
 

@@ -1,6 +1,6 @@
 /// \file   atomicutil.hpp
 /// \brief  File providing various atomic utility classes (e.g., MarkablePointer)
-/// \author Peter Pirkelbauer ( pirkelbauer@uab.edu )
+/// \author Peter Pirkelbauer
 
 #ifndef _ATOMICUTIL_HPP
 #define _ATOMICUTIL_HPP
@@ -10,18 +10,22 @@
 #include <cassert>
 
 #ifndef CACHELINESZ
-  #if defined(_ARCH_PPC64)
+  #if __cplusplus >= 201703L
+    #include <new>
+
+    #define CACHELINESZ (std::hardware_destructive_interference_size)
+  #elif defined(_ARCH_PPC64)
     #define CACHELINESZ 128
   #else
     #define CACHELINESZ 64
   #endif
 #endif
 
-namespace uab
+namespace ucl
 {
   /// \brief creates a type aligned to ALIGNSZ boundaries
   /// \pre   ALIGNSZ >= sizeof(T)
-  template <class T, size_t ALIGNSZ>
+  template <class T, size_t ALIGNSZ = CACHELINESZ>
   struct aligned_type
   {
     static_assert(ALIGNSZ >= sizeof(T), "alignment/size mismatch");
@@ -40,7 +44,7 @@ namespace uab
 
   /// \brief creates an atomic type aligned to ALIGNSZ boundaries
   /// \pre   ALIGNSZ >= sizeof(T)
-  template <class T, size_t ALIGNSZ>
+  template <class T, size_t ALIGNSZ = CACHELINESZ>
   struct aligned_atomic_type
   {
     static_assert(ALIGNSZ >= sizeof(std::atomic<T>), "alignment/size mismatch");
@@ -251,5 +255,5 @@ namespace uab
     private:
       std::atomic<numptr_type> val;
   };
-} // end namespace uab
+} // end namespace ucl
 #endif /* _ATOMICUTIL_HPP */

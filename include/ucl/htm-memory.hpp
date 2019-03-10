@@ -7,7 +7,7 @@
 ///            and Herlihy et al.'s repeated offender implementation.
 ///          - ref_counter is reference counting scheme for HTM
 ///          - epoch_manager is a coarse grain scheme that HTM makes non-blocking
-/// \author  Peter Pirkelbauer (pirkelbauer@uab.edu)
+/// \author  Peter Pirkelbauer
 
 #ifndef _HTMMEMORY_HPP
 #define _HTMMEMORY_HPP 1
@@ -33,8 +33,8 @@
 #include "htm.hpp"
 
 
-#ifndef BLAZE_GC_CXX11_THREAD_CONTEXT
-#define BLAZE_GC_CXX11_THREAD_CONTEXT
+#ifndef UCL_GC_CXX11_THREAD_CONTEXT
+#define UCL_GC_CXX11_THREAD_CONTEXT
 /// \brief If GC is enabled and gc-cxx11/gc_cxx11.hpp was included
 ///        gc_cxx_thread_context is defined there.
 ///        Otherwise this introduces a dummy declaration.
@@ -52,7 +52,7 @@ namespace
       void* operator new(size_t size) = delete;
   };
 }
-#endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
+#endif /* UCL_GC_CXX11_THREAD_CONTEXT */
 
 namespace htm
 {
@@ -122,10 +122,10 @@ namespace htm
 
   template <std::memory_order mo, class _Tp, size_t MARKABLE_BITS>
   static inline
-  typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
-  _ld(uab::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
+  typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type
+  _ld(ucl::MarkablePointer<_Tp, MARKABLE_BITS>& elem)
   {
-    //~ return typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
+    //~ return typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type(nullptr, 0);
     return elem.state(mo);
   }
 
@@ -138,7 +138,7 @@ namespace htm
 
   template <class _Tp, class _MARKTYPE>
   static inline
-  // _Tp* _ptr(typename uab::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
+  // _Tp* _ptr(typename ucl::MarkablePointer<_Tp, MARKABLE_BITS>::state_type state)
   _Tp* _ptr(std::pair<_Tp*, _MARKTYPE> state)
   {
     return state.first;
@@ -578,7 +578,7 @@ namespace htm
   static inline
   size_t threshold(size_t len)
   {
-    return len * uab::bsr32(len+1);
+    return len * ucl::bsr32(len+1);
   }
 
   /// \brief   Allocator implementing a publish and scan memory manager

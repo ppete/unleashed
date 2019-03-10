@@ -1,5 +1,5 @@
 /*
- * Code modified to run with the BLAZE task framework
+ * Code modified to run with the UCL task framework
  *
  * Peter Pirkelbauer, 2018
  * UAB - University of Alabama at Birmingham
@@ -124,10 +124,9 @@ struct knapsack_task
 };
 
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
-typedef uab::Void result_type;
-// typedef size_t result_type;
+typedef ucl::Void result_type;
 
 struct knapsack_par
 {
@@ -156,7 +155,7 @@ struct knapsack_par
 
       /* compute the best solution without the current item in the knapsack */
       if ((!CUTOFF) || (task.n > CUTOFF))
-      pool.enq(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
+        pool.enq(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
       else
         (*this)(pool, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
@@ -175,32 +174,19 @@ static inline
 void print(size_t res)       { std::cerr << res << std::endl; }
 
 static inline
-void print(const uab::Void&) { }
+void print(const ucl::Void&) { }
 
-auto knapsack(item *e, int c, int n) -> int
+auto knapsack(item *e, int c, int n, size_t numthreads) -> int
 {
-  result_type res = uab::execute_tasks(NUMTHREADS, knapsack_par(), knapsack_task{e, c, n, 0} );
+  result_type res = ucl::execute_tasks_x(numthreads, knapsack_par(), knapsack_task{e, c, n, 0} );
 
   print(res);
   return best_so_far.load(std::memory_order_relaxed);
 }
 
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
 #if CILK_VERSION
-
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
 
 // auto knapsack_par(knapsack_task task, cilk::reducer_opadd<size_t>& sum) -> void
 auto knapsack_par(knapsack_task task) -> void
@@ -213,9 +199,9 @@ auto knapsack_par(knapsack_task task) -> void
 
     /* base case: full knapsack or no items */
     if (task.c < 0)
-    { 
-      // sum+= res; 
-      return; 
+    {
+      // sum+= res;
+      return;
     }
 
     /* feasible solution, with value v */
@@ -246,7 +232,7 @@ auto knapsack_par(knapsack_task task) -> void
 
 
     /* compute the best solution without the current item in the knapsack */
-    if ((!CUTOFF) || (task.n > CUTOFF)) 
+    if ((!CUTOFF) || (task.n > CUTOFF))
     {
       cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
       // cilk_spawn knapsack_par(knapsack_task{ task.e + 1, task.c, task.n - 1, task.v }, sum);
@@ -258,14 +244,13 @@ auto knapsack_par(knapsack_task task) -> void
     }
 
     /* compute the best solution with the current item in the knapsack */
-    // #pragma omp task untied firstprivate(e,c,n,v,l) shared(with)
     task = knapsack_task{ task.e + 1, task.c - task.e->weight, task.n - 1, task.v + task.e->value };
   }
 }
 
-auto knapsack(item *e, int c, int n) -> int
+auto knapsack(item *e, int c, int n, size_t numthreads) -> int
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
   knapsack_par(knapsack_task{e, c, n, 0});
 
   // cilk::reducer_opadd<size_t> sum;
@@ -307,13 +292,11 @@ auto knapsack_par(knapsack_task task) -> void
   }
 }
 
-auto knapsack (item* e, int c, int n) -> int
+auto knapsack (item* e, int c, int n, size_t numthreads) -> int
 {
-     omp_set_num_threads(NUMTHREADS);
-
      best_so_far = INT_MIN;
 
-     #pragma omp parallel firstprivate(e,c,n)
+     #pragma omp parallel num_threads(numthreads) firstprivate(e,c,n)
      {
         #pragma omp single
         #pragma omp taskgroup
@@ -327,7 +310,7 @@ auto knapsack (item* e, int c, int n) -> int
 
 #endif /* OMP_VERSION */
 
-#if BOTS_VERSION
+#if WOMP_VERSION
 
 /*
  * return the optimal solution for n items (first is e) and
@@ -382,14 +365,13 @@ void knapsack_par(struct item *e, int c, int n, int v, int *sol, int l)
      *sol = best;
 }
 
-int knapsack (struct item *e, int c, int n)
+int knapsack (struct item *e, int c, int n, size_t numthreads)
 {
      int sol = INT_MIN;
 
-     omp_set_num_threads(NUMTHREADS);
      bots_best_so_far = INT_MIN;
 
-     #pragma omp parallel
+     #pragma omp parallel num_threads(numthreads) firstprivate(e,c,n) shared(sol)
      {
         #pragma omp single
         #pragma omp task untied
@@ -401,7 +383,7 @@ int knapsack (struct item *e, int c, int n)
      return sol;
 }
 
-#endif /* BOTS_VERSION */
+#endif /* WOMP_VERSION */
 
 
 #if TBB_VERSION
@@ -428,13 +410,13 @@ auto knapsack_par(G& taskgroup, knapsack_task task) -> void
 
     /* compute the best solution without the current item in the knapsack */
     if ((!CUTOFF) || (task.n > CUTOFF))
-    taskgroup.run( [&taskgroup, task]() -> void
-                   {
+      taskgroup.run( [&taskgroup, task]() -> void
+                     {
                        knapsack_par( taskgroup,
                                      knapsack_task{ task.e + 1, task.c, task.n - 1, task.v }
                                    );
-                   }
-                 );
+                     }
+                   );
     else
       knapsack_par(taskgroup, knapsack_task{ task.e + 1, task.c, task.n - 1, task.v });
 
@@ -444,9 +426,9 @@ auto knapsack_par(G& taskgroup, knapsack_task task) -> void
   }
 }
 
-auto knapsack(item *e, int c, int n) -> int
+auto knapsack(item *e, int c, int n, size_t numthreads) -> int
 {
-   tbb::task_scheduler_init init(NUMTHREADS);
+   tbb::task_scheduler_init init(numthreads);
    tbb::task_group          g;
 
    knapsack_par(g, knapsack_task{e, c, n, 0});
@@ -508,10 +490,10 @@ aligned_t knapsack_par(void* qtsk)
     qt_sinc_expect(task.sinc, 1);
 
     if ((!CUTOFF) || (task.n > CUTOFF))
-    qthread_fork( knapsack_par,
-                  new qtask{ task.e + 1, task.c, task.n - 1, task.v, task.sinc },
-                  nullptr
-                );
+      qthread_fork( knapsack_par,
+                    new qtask{ task.e + 1, task.c, task.n - 1, task.v, task.sinc },
+                    nullptr
+                  );
     else
       knapsack_par(new qtask{ task.e + 1, task.c, task.n - 1, task.v, task.sinc });
 
@@ -525,7 +507,7 @@ aligned_t knapsack_par(void* qtsk)
   }
 }
 
-auto knapsack(item *e, int c, int n) -> int
+auto knapsack(item *e, int c, int n, size_t /*numthreads*/) -> int
 {
   qt_sinc_t* sinc   = qt_sinc_create(0, nullptr, nullptr, 1);
 
@@ -614,19 +596,21 @@ int main(int argc, char** argv)
   item        items[MAX_ITEMS];
   int         n;
   int         capacity;
+  size_t      num_threads = NUMTHREADS;
 
-  if (argc > 1) inputfile = argv[1];
+  if (argc > 1) num_threads = aux::as<size_t>(*(argv+1));
+  if (argc > 2) inputfile = argv[2];
 
   std::cout << "loading " << inputfile << std::endl;
   read_input(inputfile.c_str(), items, &capacity, &n);
   total_num_elems = n;
 
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
+  init_qthreads(num_threads);
 #endif /* QTHREADS_VERSION */
 
   time_point starttime = std::chrono::system_clock::now();
-  int        solpar = knapsack(items, capacity, n);
+  int        solpar = knapsack(items, capacity, n, num_threads);
   time_point endtime = std::chrono::system_clock::now();
   int        elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 /*

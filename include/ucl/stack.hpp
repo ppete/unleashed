@@ -7,11 +7,11 @@
 ///        - The lock-based stack can be customized with lock-type and guard types,
 ///          for example to elide the lock in the presence of hardware transactional
 ///          memory (requires HTM_ENABLED be set to 1).
-/// \author Peter Pirkelbauer (pirkelbauer@uab.edu)
+/// \author Peter Pirkelbauer
 
 
-#ifndef _UAB_STACK_HPP
-#define _UAB_STACK_HPP 1
+#ifndef _UNLEASHED_STACK_HPP
+#define _UNLEASHED_STACK_HPP 1
 
 #include <atomic>
 #include <mutex>
@@ -49,25 +49,6 @@ namespace aux
 
 namespace lockfree
 {
-
-  /// \private
-  /// simple ptr deleter, that uses the provided allocator to release memory.
-  template <class _Alloc>
-  struct ptr_guard
-  {
-    ptr_guard(_Alloc alloc, typename _Alloc::value_type* elem)
-    : node_allocator(alloc), e(elem)
-    {}
-
-    ~ptr_guard()
-    {
-      node_allocator.deallocate(e, 1);
-    }
-
-    _Alloc                             node_allocator;
-    typename _Alloc::value_type* const e;
-  };
-
   /// \brief   Lock-free stack (Treiber) implementation for the relaxed memory model
   /// \details The stack is parametrized with available memory managers
   /// \tparam  _Tp the stack's value type
@@ -168,7 +149,7 @@ namespace lockfree
           alloc.unpin(guardedptr, 0);
         }
 
-        ptr_guard<_Node_alloc_type> pguard(alloc, currtop);
+        ptr_deleter<_Node_alloc_type> elemguard(alloc, currtop);
         return std::make_pair(std::move(currtop->elem()), true);
       }
 
@@ -188,7 +169,7 @@ namespace locking
   /// \tparam _Tp the stack's value type
   /// \tparam _M the used mutex class,
   /// \tparam _G the guard used, common options include std::lock_guard,
-  ///            uab::lockable_guard, uab::elidable_guard. The chosen guard
+  ///            ucl::lockable_guard, ucl::elidable_guard. The chosen guard
   ///            needs to be compatible with the mutex interface.
   /// \details the stack uses new and delete to allocate its nodes.
   /// \todo    replace new/delete with allocators
@@ -244,4 +225,4 @@ namespace locking
   };
 }
 
-#endif /* _UAB_STACK_HPP */
+#endif /* _UNLEASHED_STACK_HPP */

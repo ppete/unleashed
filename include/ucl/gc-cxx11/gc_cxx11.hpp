@@ -3,11 +3,11 @@
 
 #include "gc_allocator.h"
 
-#ifdef BLAZE_GC_CXX11_THREAD_CONTEXT
+#ifdef UCL_GC_CXX11_THREAD_CONTEXT
 #error "GC_CXX_THREAD_CONTEXT already defined. Check include order."
-#endif /* BLAZE_GC_CXX11_THREAD_CONTEXT */
+#endif /* UCL_GC_CXX11_THREAD_CONTEXT */
 
-#define BLAZE_GC_CXX11_THREAD_CONTEXT 1
+#define UCL_GC_CXX11_THREAD_CONTEXT 1
 
 struct gc_cxx_thread_context
 {

@@ -4,7 +4,7 @@
 ///        memory (requires HTM_ENABLED be set to 1).
 /// \todo  separate some classes that need to hold data into header and
 ///        implementation file.
-/// \author Amalee Wilson, Peter Pirkelbauer (pirkelbauer@uab.edu)
+/// \author Amalee Wilson, Peter Pirkelbauer 
 ///
 /// To seamlessly interact with systems that support transactional memory,
 /// we introduce the Elidable concept. Elidable is similar to
@@ -35,8 +35,8 @@
 /// }
 /// \endcode
 
-#ifndef _UAB_LOCKS_HPP
-#define _UAB_LOCKS_HPP
+#ifndef _UNLEASHED_LOCKS_HPP
+#define _UNLEASHED_LOCKS_HPP
 
 #include <atomic>
 #include <random>
@@ -76,7 +76,7 @@ void pausenow() {}
 #endif /* ENABLE_UNSAFE_LOCK_IMPLS */
 
 
-namespace uab
+namespace ucl
 {
   /// \brief Overly simple test and set lock.
   /// \details demonstrates the problem of just using compare_and_exchange
@@ -725,7 +725,7 @@ namespace uab
   ///
   /// \details used as follows:
   /// \code
-  ///   auto guard = uab::elide_guard(10, m1, m2, m3);
+  ///   auto guard = ucl::elide_guard(10, m1, m2, m3);
   /// \endcode
   ///
   /// \warning The locks are acquired in sequence. elide_guard DOES NOT
@@ -746,7 +746,7 @@ namespace uab
   ///
   /// \details
   /// \code
-  ///   auto guard = uab::elide_guard(m1, m2, m3);
+  ///   auto guard = ucl::elide_guard(m1, m2, m3);
   /// \endcode
   /// \warning The locks are acquired in sequence. elide_guard DOES NOT
   ///          implement any deadlock prevention.
@@ -786,7 +786,7 @@ namespace uab
   ///
   /// \details used as follows:
   /// \code
-  ///   auto guard = uab::lock_guard(m1, m2, m3);
+  ///   auto guard = ucl::lock_guard(m1, m2, m3);
   /// \endcode
   ///
   /// \warning The locks are acquired in sequence. lock_guard DOES NOT
@@ -799,4 +799,4 @@ namespace uab
   }
 }
 
-#endif /* _UAB_LOCKS_HPP */
+#endif /* _UNLEASHED_LOCKS_HPP */

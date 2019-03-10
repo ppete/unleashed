@@ -1,18 +1,19 @@
 
-/// \file    tasks.hpp
+/// \file    task.hpp
 /// \brief   Framework for featherweight tasks.
 /// \details Featherweight tasks are a portable yet effective prototype
 ///          framework for task scheduling and task reductions on shared memory
 ///          architectures. Featherweight tasks do not need their own stack
 ///          since they are executed on a regular thread's stack. Tasks may
 ///          spawn other tasks, or return a value contributing to a
-///          reduction operation across all tasks. Currently, tasks cannot
-///          wait for other tasks to be completed.
+///          reduction operation across all tasks.
 ///
 ///          The framework has been designed with lock-free techniques and
-///          generic programming principles in mind. Clients may plug-in a
-///          variety of memory management techniques to customize the
-///          framework for the application context ( see pmemory.hpp ).
+///          generic programming principles in mind.
+///          - Clients may plugin different task pools.
+///          - Task pools, in turn, can be customized with different memory
+///            reclamation techniques in order to choose a suitable mechanism
+///            for different environments ( see pmemory.hpp ).
 ///
 ///          Although, the featherweight tasks cannot wait on the completion of
 ///          other tasks, they can be applied in a variety of domains:
@@ -20,17 +21,113 @@
 ///          - search space exploration
 ///          - partitioning of an iteration space
 ///
-///          uab::execute_tasks() offers an example that implements task-based
-///          computation of Fibonacci numbers.
-///          Other examples can be found under BLAZE_HOME/examples/tasks .
-/// \author  Peter Pirkelbauer ( pirkelbauer@uab.edu )
+///          If waiting is necessary, users may use continuations
+///          (e.g., continuation or xcontinuation) to achieve coordination
+///          among tasks.
+///
+///          ucl::execute_tasks() offers an example that implements
+///          task-based computation of Fibonacci numbers.
+///          Other examples can be found under UCL_HOME/examples/tasks .
+/// defines Concept definitions for the task library:
+/// \code{.cpp}
+///
+/// // defines the TaskFunctor concept
+/// concept TaskFunctor
+/// {
+///   // result type of a task's execution
+///   // \note the type is inferred and a type with that name does not
+///   //       need to be present.
+///   typename result_type;
+///
+///   // the executer of a task, takes a pool and its value_type
+///   template <class TaskPool>
+///   result_type operator()(TaskPool& pool, TaskPool::value_type&& task);
+/// }
+///
+/// // Single producer, multiple consumer data structure.
+/// //   The data structure is unordered in principle.
+/// concept SPMCBag
+/// {
+///   // defines the task type this pool is able to handle
+///   typename value_type;
+///
+///   // defines the allocator type in use
+///   typename allocator_type;
+///
+///   // constructor that takes an allocator
+///   SPMCBag(allocator_type alloc);
+///
+///   // adds a new task t to the bag
+///   void enq(value_type t);
+///
+///   // dequeues a task and moves it into res
+///   // \result true if a task was dequeued, false otherwise
+///   bool deq(T& res);
+///
+///   // returns an estimated number of available tasks
+///   size_t estimate_size();
+///
+///   // does any created task (stolen or not) remain unfinished?
+///   bool has_unfinished_tasks();
+///
+///   // records finished task
+///   void task_completed();
+///
+///   // records finished stolen task
+///   void stolen_task_completed();
+///
+///   // releases resources after all tasks have been handled
+///   // \details
+///   //    it can be assumed that this method is called during quiescent time
+///   void qrelease_memory();
+/// }
+///
+/// // The taskpool concept
+/// concept TaskPool
+/// {
+///   // defines the task type this pool is able to handle
+///   typename value_type;
+///
+///   // returns the number of worker threads
+///   size_t num_threads();
+///
+///   // initializes pool thread local data for thisthread
+///   // and sets its parent thread
+///   void init(size_t parent, size_t thisthread);
+///
+///   // attempts to get a task from some queue and stores it in t
+///   // \result true, iff a task could be retrieved
+///   bool deq(value_type& t);
+///
+///   // adds a new task t to this thread's queue
+///   void enq(value_type t);
+///
+///   // called before work on task starts
+///   void work_started();
+///
+///   // called after work on task finished
+///   void work_completed();
+///
+///   // returms true if there is at least one active task in the system
+///   bool work_available();
+///
+///   // releases (thread local) resources after all tasks have been handled
+///   // \details
+///   //    it can be assumed that this method is called during quiescent time
+///   void qrelease_memory();
+/// }
+/// \endcode
+///
+/// \author  Peter Pirkelbauer
 
 /*
  * A simple, portable, and generic framework for reductions over tasks.
  *
- * Implementer: Peter Pirkelbauer (UAB) - 2018
+ * Implementer: Peter Pirkelbauer - 2018
  *
- * This program is part of the Blaze Concurrent Library.
+ * This program is part of the Unleashed Concurrency Library (UCL).
+ *
+ * Copyright (c) 2019, Peter Pirkelbauer
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
  * All rights reserved.
@@ -60,12 +157,13 @@
  */
 
 
-#ifndef _TASKS_HPP
-#define _TASKS_HPP
+#ifndef _UCL_TASK_HPP
+#define _UCL_TASK_HPP 1
 
 #include <algorithm>
 #include <thread>
 #include <cassert>
+#include <functional>
 
 // for setting and getting binding
 #include <sched.h>
@@ -77,15 +175,21 @@
 #ifndef _ARCHMODEL_H
 #include "archmodel.hpp"
 
-typedef uab::generic_arch         arch_model;
+typedef ucl::generic_arch         arch_model;
 #endif
 
-namespace uab
+// Switches on (1) and off (0) code for estimating the number of
+// elements in task pools.
+#define INFORMED_STEALING 1
+
+
+
+namespace ucl
 {
   /// \brief void reduction defaults to empty operators
   /// \details
   ///    use:
-  ///    \code
+  ///    \code{.cpp}
   ///    template <class Pool>
   ///    Void reductionOp(Pool taskpool, Task t)
   ///    {
@@ -107,7 +211,7 @@ namespace uab
   // Task pool implementation
 
   /// constant for block-size used in task pool
-  static const size_t BLKSZ                = 1024;
+  static const size_t BLKSZ                = 512;
 
   /// \private
   /// \brief Data block in a FIFO queue implemented as list of blocks.
@@ -124,13 +228,13 @@ namespace uab
   struct dataQ
   {
     /// type for head and tail position within block
-    typedef uab::aligned_atomic_type<size_t, CACHELINESZ>    counter_t;
+    typedef ucl::aligned_atomic_type<size_t>    counter_t;
 
     /// pointer to next data block
-    typedef uab::aligned_atomic_type<dataQ<T>*, CACHELINESZ> next_t;
+    typedef ucl::aligned_atomic_type<dataQ<T>*> next_t;
 
     /// task type
-    typedef T                                                value_t;
+    typedef T                                   value_t;
 
     static const size_t BLK = BLKSZ; ///< number of elements in a block
 
@@ -157,7 +261,7 @@ namespace uab
     dataQ(value_t&& el)
     : hd(0), tl(1), next(nullptr)
     {
-      new (at(0)) value_t (el);
+      new (at(0)) value_t (std::move(el));
     }
 
     /// constructs a data block with 1 element
@@ -209,7 +313,7 @@ namespace uab
       const size_t tail = tl.val.load(std::memory_order_relaxed);
 
       assert(tail < BLK);
-      new (at(tail)) value_t (el); // in-place constructions
+      new (at(tail)) value_t (std::move(el)); // in-place constructions
 
       // \mo release b/c data[tail] is published
       tl.val.store(tail+1, std::memory_order_release);
@@ -322,226 +426,256 @@ namespace uab
   /// \details
   ///    Each thread has its own flatQ object. The flatQ object also holds
   ///    some status information for its owning thread.
-  template <class T, class Alloc>
+  template <class T, class UclAlloc>
   struct flatQ
   {
-    /// Memory manager type
-    typedef Alloc                                                        allocator_type;
-    typedef std::allocator_traits<Alloc>                                 orig_alloc_traits;
-    typedef typename orig_alloc_traits::template rebind_alloc<dataQ<T> > node_alloc_type;
+      /// Memory manager type
+      typedef UclAlloc                                                     orig_allocator_type;
+      typedef std::allocator_traits<UclAlloc>                              orig_alloc_traits;
+      typedef typename orig_alloc_traits::template rebind_alloc<dataQ<T> > allocator_type;
+      typedef T                                                            value_type;
 
-    /// Number of concurrently pinned blocks (this and next)
-    static const size_t                              SZPINWALL = 2;
+      /// Number of concurrently pinned blocks (this and next)
+      static const size_t                              SZPINWALL = 2;
 
-    /// The allocator/memory manager
-    node_alloc_type                                  nodealloc;
+    // private:
+      /// The allocator/memory manager
+      allocator_type                                   nodealloc;
 
+      /// tail (enqueue-side) of the queue; only accessed by owner
+      dataQ<T>*                                        tail; // only accessed from queue owner
+
+      /// head (dequeue-side) of the queue; concurrently accessed by work stealers.
+      ucl::aligned_atomic_type<dataQ<T>*, CACHELINESZ> head;
+
+      /// number of tasks stolen from this thread
+      size_t                                           stolen;
+
+      /// number of tasks enqueued by this thread
+      size_t                                           tasks_made;
+
+      /// number of completed tasks (incl. tasks solved by other threads, but
+      ///   not tasks that this thread stole).
+      size_t                                           tasks_done;
+
+      /// number of stolen and completed tasks; updated by the work stealers.
+      ucl::aligned_atomic_type<size_t, CACHELINESZ>    steals;
+
+      /// estimate of available tasks
+      ucl::aligned_atomic_type<size_t, CACHELINESZ>    numtasks;
+
+    public:
+      /// default ctor initializes an empty Q
+      explicit
+      flatQ(orig_allocator_type alloc = orig_allocator_type())
+      : nodealloc(alloc), tail(nullptr), head(nullptr), stolen(0),
+        tasks_made(0), tasks_done(0), steals(0), numtasks(0)
+      {
+        nodealloc.initialize_if_needed();
+
+        tail = nodealloc.allocate(1);
+        head.val.store(tail);
+      }
+
+      /// retrieve allocator
+      allocator_type get_allocator()
+      {
+        return nodealloc;
+      }
+
+      /// returns an estimated number of available tasks
+      size_t estimate_size() const
+      {
+        return numtasks.val.load(std::memory_order_relaxed);
+      }
+
+      /// allocates a new dataQ block
+      dataQ<T>* new_block(T&& el)
+      {
+        allocator_type  alloc = get_allocator();
+        dataQ<T>*       tmp = alloc.allocate(1);
+
+        new (tmp)dataQ<T>(std::move(el));
+        return tmp;
+      }
+
+      /// copy-enqueues a new element
+      void enq(const T& el)
+      {
+        ++tasks_made;
+
+        if (tail->has_space())
+        {
+          tail->enq(el);
+          return;
+        }
+
+        dataQ<T>* tmp = new_block(std::move(T(el)));
+
+        numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
+
+        // \mo release, b/c new_block was initialized
+        tail->next.val.store(tmp, std::memory_order_release);
+        tail = tmp;
+      }
+
+      /// move-enqueues a new element
+      void enq(T&& el)
+      {
+        ++tasks_made;
+
+        if (tail->has_space())
+        {
+          tail->enq(std::move(el));
+          return;
+        }
+
+        dataQ<T>* tmp = new_block(std::move(el));
+
+        numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
+
+        // \mo release, b/c new_block was initialized
+        tail->next.val.store(tmp, std::memory_order_release);
+        tail = tmp;
+      }
+
+      /// dequeues an element and stores result into res
+      /// \param  res  where the result will be stored
+      /// \result true if successful, false otherwise
+      bool deq(T& res)
+      {
+        // \mo relaxed, b/c head is only updated by the owner
+        dataQ<T>*               curr = head.val.load(std::memory_order_relaxed);
+        assert(curr);
+
+        // attempt to dequeue from own queue
+        dataQ<T>* actl = curr->deq(res);
+
+        // unsuccessful?
+        if (actl == nullptr) return false;
+
+        // all blocks that have become empty can be freed
+        if (curr != actl)
+        {
+          allocator_type alloc = get_allocator();
+
+          do
+          {
+            dataQ<T>* tmp = curr;
+
+            curr = curr->next.val.load(std::memory_order_relaxed);
+            alloc.deallocate(tmp, 1);
+          } while (curr != actl);
+
+          // \mo release to make content of new head available (needed?)
+          head.val.store(actl, std::memory_order_release);
+
+#if INFORMED_STEALING
+          // update completed stolen tasks
+          has_unfinished_tasks();
+#endif /* INFORMED_STEALING */
+
+          // update available task counter
+          numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
+        }
+
+        return true;
+      }
+
+      /// attempts to steal a task from some other thread's queue
+      /// \param  res   where the result will be stored
+      /// \param  tries number of attempts before yielding to contention
+      /// \result true if successful, false otherwise
+      bool deq_steal(T& res, uint_fast8_t tries)
+      {
+        // \mo consume, b/c we need to see memory initialized
+        allocator_type  alloc = get_allocator();
+        dataQ<T>*       curr  = alloc.template pin<std::memory_order_consume>(head.val);
+        assert(curr);
+
+        return curr->deq_steal(res, tries, alloc) != nullptr;
+      }
+
+      /// records finished task
+      void task_completed() { ++tasks_done; }
+
+      /// records finished stolen task
+      void stolen_task_completed()
+      {
+        steals.val.fetch_add(1, std::memory_order_relaxed);
+      }
+
+      /// does any created task (stolen or not) remain unfinished?
+      bool has_unfinished_tasks();
+
+      /// quiescent release of memory
+      /// \details
+      ///    DO NOT CALL when concurrent operations are ongoing!
+      void qrelease_memory()
+      {
+        get_allocator().qrelease_memory();
+      }
+  };
+
+  template <class T, class UclAlloc>
+  bool flatQ<T, UclAlloc>::has_unfinished_tasks()
+  {
+    size_t prev_stolen = stolen;
+
+    stolen = steals.val.load(std::memory_order_relaxed);
+
+    assert(tasks_made - tasks_done >= stolen - prev_stolen);
+    tasks_done += (stolen - prev_stolen);
+
+    return tasks_made > tasks_done;
+  }
+
+
+  template <class Q>
+  struct active_tracker : Q
+  {
     /// keeps track of current
-    bool                                             active;
+    bool                    active;
 
-    /// number of tasks stolen from this thread
-    size_t                                           stolen;
+#if UCL_RUNTIME_DATA
+    size_t                  task_acq = 0;
+    size_t                  task_acq_tries = 0;
+#endif /* UCL_RUNTIME_DATA */
 
-    /// number of tasks enqueued by this thread
-    size_t                                           tasks_made;
-
-    /// number of completed tasks (incl. tasks solved by other threads, but
-    ///   not tasks that this thread stole).
-    size_t                                           tasks_done;
-
-    /// tail (enqueue-side) of the queue; only accessed by owner
-    dataQ<T>*                                        tail; // only accessed from queue owner
-
-    /// head (dequeue-side) of the queue; concurrently accessed by work stealers.
-    uab::aligned_atomic_type<dataQ<T>*, CACHELINESZ> head;
-
-    /// estimate of available tasks
-    uab::aligned_atomic_type<size_t, CACHELINESZ>    numtasks;
-
-    /// number of stolen and completed tasks; updated by the work stealers.
-    uab::aligned_atomic_type<size_t, CACHELINESZ>    steals;
-
-    /// default ctor initializes an empty Q
-    explicit
-    flatQ(allocator_type alloc = allocator_type())
-    : nodealloc(alloc), active(true), stolen(0), tasks_made(0), tasks_done(0),
-      tail(new dataQ<T>()), head(tail), numtasks(0), steals(0)
+    active_tracker()
+    : Q(), active(true)
     {}
 
-    /// retrieve allocator
-    node_alloc_type get_allocator()
-    {
-      return nodealloc;
-    }
-
-    /// allocates a new dataQ block
-    dataQ<T>* new_block(T el)
-    {
-      node_alloc_type alloc = get_allocator();
-      dataQ<T>*       tmp = alloc.allocate(1);
-
-      alloc.construct(tmp, el);
-      return tmp;
-    }
-
-    /// copy-enqueues a new element
-    void enq(const T& el)
-    {
-      ++tasks_made;
-
-      if (tail->has_space())
-      {
-        tail->enq(el);
-        return;
-      }
-
-      dataQ<T>* tmp = new_block(el);
-
-      numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
-
-      // \mo release, b/c new_block was initialized
-      tail->next.val.store(tmp, std::memory_order_release);
-      tail = tmp;
-    }
-
-    /// move-enqueues a new element
-    void enq(T&& el)
-    {
-      ++tasks_made;
-
-      if (tail->has_space())
-      {
-        tail->enq(el);
-        return;
-      }
-
-      dataQ<T>* tmp = new_block(el);
-
-      numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
-
-      // \mo release, b/c new_block was initialized
-      tail->next.val.store(tmp, std::memory_order_release);
-      tail = tmp;
-    }
-
-    /// records finished task
-    void task_completed()
-    {
-      ++tasks_done;
-    }
-
-    /// tests if task became inactive (all tasks it produced (potentially stolen)
-    ///   have been completed.
-    bool became_inactive()
-    {
-      if (!active) return false;
-
-      size_t prev_stolen = stolen;
-
-      stolen = steals.val.load(std::memory_order_relaxed);
-
-      assert(tasks_made - tasks_done >= stolen - prev_stolen);
-      tasks_done += (stolen - prev_stolen);
-
-      if (tasks_made > tasks_done) return false;
-
-      active = false;
-      return true;
-    }
-
-    /// dequeues an element and stores result into res
-    /// \param  res  where the result will be stored
-    /// \result true if successful, false otherwise
-    bool deq(T& res)
-    {
-      typedef typename node_alloc_type::pinguard PinGuard;
-
-      // \mo relaxed, b/c head is only updated by the owner
-      dataQ<T>*               curr = head.val.load(std::memory_order_relaxed);
-      assert(curr);
-
-      // attempt to dequeue from own queue
-      dataQ<T>* actl = curr->deq(res);
-
-      // unsuccessful?
-      if (actl == nullptr) return false;
-
-      // all blocks that have become empty can be freed
-      if (curr != actl)
-      {
-        node_alloc_type alloc = get_allocator();
-        PinGuard        pinguard(alloc, SZPINWALL, lockfree::unordered());
-
-        do
-        {
-          dataQ<T>* tmp = curr;
-
-          curr = curr->next.val.load(std::memory_order_relaxed);
-          alloc.deallocate(tmp, 1);
-        } while (curr != actl);
-
-        // \mo release to make content of new head available (needed?)
-        head.val.store(actl, std::memory_order_release);
-
-        // update available task counter
-        numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
-      }
-
-      return true;
-    }
-
-    /// attempts to steal a task from some other thread's queue
-    /// \param  res   where the result will be stored
-    /// \param  tries number of attempts before yielding to contention
-    /// \result true if successful, false otherwise
-    bool deq_steal(T& res, uint_fast8_t tries)
-    {
-      typedef typename node_alloc_type::pinguard PinGuard;
-
-      node_alloc_type alloc = get_allocator();
-      PinGuard        pinguard(alloc, SZPINWALL);
-
-      // \mo consume, b/c we need to see memory initialized
-      dataQ<T>*       curr = alloc.template pin<std::memory_order_consume>(head.val);
-      assert(curr);
-
-      return curr->deq_steal(res, tries, alloc) != nullptr;
-    }
-
-    /// quiescent release of memory
-    /// \details
-    ///    DO NOT CALL when concurrent operations are ongoing!
-    void qrelease_memory()
-    {
-      get_allocator().qrelease_memory();
-    }
+    template <class UclAlloc>
+    active_tracker(UclAlloc alloc)
+    : Q(alloc), active(true)
+    {}
   };
 
 
   /// The task pool class
-  /// \tparam T task type
-  /// \tparam _Alloc the memory manager (see pmemory.hpp)
-  template <class T, class _Alloc = lockfree::epoch_manager<T, std::allocator>>
-  struct pool
+  /// \tparam SPMCBag a single-producer multi-consumer data structure
+  ///         for managing tasks.
+  ///         The owning thread is the single producer, while all
+  ///         threads may be consumers.
+  template <class SPMCBag>
+  struct perthread_pool
   {
-    typedef T                                                       task_type;
-    typedef _Alloc                                                  allocator_type;
-    typedef flatQ<T, _Alloc>                                        tasq;
-
-    typedef std::allocator_traits<_Alloc>                           orig_alloc_traits;
-    typedef typename orig_alloc_traits::template rebind_alloc<tasq> node_alloc_type;
+    typedef active_tracker<SPMCBag>                      tasq;
+    typedef typename SPMCBag::value_type                 value_type;
+    typedef typename SPMCBag::allocator_type             allocator_type;
 
     /// maximum number of threads
     const uint_fast32_t                                  MAXTQ;
 
     /// the allocator/memory manager
-    node_alloc_type                                      nodealloc;
+    allocator_type                                       nodealloc;
 
     /// counts active threads; when count reaches 0 all task have been handled
-    uab::aligned_atomic_type<uint_fast32_t, CACHELINESZ> active;
+    ucl::aligned_atomic_type<uint_fast32_t, CACHELINESZ> active;
 
     /// task specific queue handles
-    uab::aligned_atomic_type<tasq*, CACHELINESZ>         taskq[256]; // \todo remove magic constant
+    ucl::aligned_atomic_type<tasq*, CACHELINESZ> taskq[256]; // \todo remove magic constant
 
     /// thread id within pool
     static thread_local uint_fast32_t                    idx;
@@ -560,13 +694,14 @@ namespace uab
     /// \param work       first task
     /// \param alloc      memory manager
     explicit
-    pool(uint_fast32_t numthreads, T work, const allocator_type& alloc = allocator_type())
+    perthread_pool(uint_fast32_t numthreads, value_type work, const allocator_type& alloc = allocator_type())
     : MAXTQ(numthreads), nodealloc(alloc), active(numthreads)
     {
       assert(tq_loc == nullptr);
       assert(MAXTQ <= 256);
 
       // initialize main thread
+      // \todo \new
       tq_loc      = new tasq(nodealloc);
       idx         = 0;
       last_victim = 0;
@@ -582,14 +717,26 @@ namespace uab
       }
     }
 
+    /// retrieve allocator
+    allocator_type get_allocator()
+    {
+      return nodealloc;
+    }
+
+    /// returns the maximum number of worker threads for this pool
+    size_t num_threads() const { return MAXTQ; }
+
     /// initializes thread local storage of task pool
     /// \param parent pool id of parent thread
     /// \param self   pool id of this thread
     /// \note pool ids are generated by the task system
     void init(uint_fast32_t parent, uint_fast32_t self)
     {
+      nodealloc.initialize_if_needed();
+
       if (self == 0) return;
 
+      // \todo \new
       tq_loc      = new tasq(nodealloc);
       idx         = self;
       last_victim = parent;
@@ -598,25 +745,24 @@ namespace uab
     }
 
     /// copy-enqueues a new task
-    void enq(const T& el)
+    void enq(const value_type& el)
     {
       tq_loc->enq(el);
     }
 
     /// move-enqueues a new task
-    void enq(T&& el)
+    void enq(value_type&& el)
     {
-      tq_loc->enq(el);
+      tq_loc->enq(std::move(el));
     }
 
     /// called before a new task is scheduled
     void work_started()
     {
-      if (!tq_loc->active)
-      {
-        active.val.fetch_add(1, std::memory_order_relaxed);
-        tq_loc->active = true;
-      }
+      if (tq_loc->active) return;
+
+      active.val.fetch_add(1, std::memory_order_relaxed);
+      tq_loc->active = true;
     }
 
     /// called after a task has been completed
@@ -631,33 +777,35 @@ namespace uab
       }
 
       // yes, notify victim thread that its task has completed
-      tq_rem->steals.val.fetch_add(1, std::memory_order_relaxed);
+      tq_rem->stolen_task_completed();
       tq_rem = nullptr;
     }
 
-    /// checks whether all created tasks have completed
-    /// \details
-    ///    updates the pool's active counter if needed
-    void check_active()
+    bool became_inactive(tasq* q)
     {
-      if (tq_loc->became_inactive())
-      {
-        active.val.fetch_sub(1, std::memory_order_relaxed);
-      }
+      if (!q->active || q->has_unfinished_tasks())
+        return false;
+
+      q->active = false;
+      return true;
     }
 
     /// checks if there is at least one active thread remaining
-    bool has_work()
+    bool work_available()
     {
-      return active.val.load(std::memory_order_relaxed) > 0;
+      size_t cntactv = became_inactive(tq_loc)
+                          ? active.val.fetch_sub(1, std::memory_order_relaxed) - 1
+                          : active.val.load(std::memory_order_relaxed)
+                          ;
+
+      return cntactv > 0;
     }
 
     /// dequeues a task and moves it into res
     /// \result  true if a task was dequeued, false otherwise
-    bool deq(T& res)
+    bool deq(value_type& res)
     {
       // used to estimate number of stealing attempts
-      static const size_t SAMPLESIZE = 4;
 
       // try to dequeue from the local queue first
       bool succ = tq_loc->deq(res);
@@ -667,9 +815,10 @@ namespace uab
       // no more tasks in the local queue
       //   -> steal a task from somewhere else
 
+#if INFORMED_STEALING
       // estimate average number of tasks from a sample
       //   and choose first victim from the sample with the most tasks.
-#if 1 /* informed stealing */
+      static const size_t SAMPLESIZE = 4;
       size_t             tasks_sum = 0;
       size_t             tasks_avail[SAMPLESIZE];
 
@@ -688,7 +837,7 @@ namespace uab
 
           if (victim)
           {
-            tasks_avail[tasks_i] = victim->numtasks.val.load(std::memory_order_relaxed);
+            tasks_avail[tasks_i] = victim->estimate_size();
             tasks_sum += tasks_avail[tasks_i];
 
             if (tasks_avail[tasks_i] > max)
@@ -701,11 +850,19 @@ namespace uab
 
         std::swap(tasks_avail[tasks_i], tasks_avail[0]);
       }
-#endif /* informed stealing */
+#endif /* INFORMED_STEALING */
       {
+        typedef typename allocator_type::pinguard PinGuard;
+
+        allocator_type     alloc = get_allocator();
+        PinGuard           pinguard(alloc, SPMCBag::SZPINWALL);
+
         // work stealing
-        uint_fast32_t      tasks_i = 0;
         uint_fast32_t      thrid   = last_victim;
+
+#if INFORMED_STEALING
+        uint_fast32_t      tasks_i = 0;
+#endif /* INFORMED_STEALING */
 
         do
         {
@@ -715,8 +872,9 @@ namespace uab
           if (victim)
           {
             uint_fast8_t tries = arch_model::num_tries(idx, thrid);
-#if 1 /* informed stealing */
-            size_t        avail = victim->numtasks.val.load(std::memory_order_relaxed);
+
+#if INFORMED_STEALING
+            size_t        avail = victim->estimate_size();
 
             if (avail * (SAMPLESIZE/2) > tasks_sum)
             {
@@ -731,16 +889,25 @@ namespace uab
             tasks_sum += (tasks_avail[tasks_i] = avail);
             ++tasks_i;
             if (tasks_i == SAMPLESIZE) tasks_i = 0;
-#endif /* informed stealing */
+#endif /* INFORMED_STEALING */
 
             succ = victim->deq_steal(res, tries);
 
             if (succ)
             {
+              assert(idx != thrid);
+#if UCL_RUNTIME_DATA
+              ++tq_loc->task_acq;
+#endif /* UCL_RUNTIME_DATA */
+
               tq_rem      = victim;
               last_victim = thrid;
               return succ;
             }
+
+#if UCL_RUNTIME_DATA
+              tq_loc->task_acq_tries += tries;
+#endif /* UCL_RUNTIME_DATA */
           }
 
           ++thrid;
@@ -760,32 +927,22 @@ namespace uab
     }
   };
 
-  template <class W, class A>
+  template <class Q>
   thread_local
-  uint_fast32_t pool<W,A>::idx = 0;
+  uint_fast32_t perthread_pool<Q>::idx = 0;
 
-  template <class W, class A>
+  template <class Q>
   thread_local
-  uint_fast32_t pool<W,A>::last_victim = 0;
+  uint_fast32_t perthread_pool<Q>::last_victim = 0;
 
-  template <class W, class A>
+  template <class Q>
   thread_local
-  typename pool<W,A>::tasq* pool<W,A>::tq_loc = nullptr;
+  typename perthread_pool<Q>::tasq* perthread_pool<Q>::tq_loc = nullptr;
 
-  template <class W, class A>
+  template <class Q>
   thread_local
-  typename pool<W,A>::tasq* pool<W,A>::tq_rem = nullptr;
+  typename perthread_pool<Q>::tasq* perthread_pool<Q>::tq_rem = nullptr;
 
-#if PRINT_STATS
-  struct alignas(CACHELINESZ) threadstat
-  {
-    size_t num;        // number of tasks
-    size_t core_init;  // core where thread began
-    size_t core_last;  // core where thread ended
-  };
-
-  static threadstat work[NUMTHREADS];
-#endif /* PRINT_STATS */
 
   /// \private
   /// \brief  main task loop
@@ -796,21 +953,20 @@ namespace uab
   static
   void taskloop(size_t parent, size_t thrnum, R* res, P* tasks, F fun)
   {
-    typedef typename P::task_type task_type;
+    typedef typename P::value_type task_type;
 
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined __sun
     arch_model::bind_to_core(pthread_self(), thrnum);
+#endif
 
-#if PRINT_STATS
-    work[thrnum].core_init = sched_getcpu();
-#endif /* PRINT_STATS */
-
-    assert(thrnum < tasks->MAXTQ);
+    assert(thrnum < tasks->num_threads());
 
     // initialize task-queues for each thread
     tasks->init(parent, thrnum);
 
     // initialize local reduction variable
     R      val = R();
+
 
     // run until no more tasks can be found
     do
@@ -821,21 +977,14 @@ namespace uab
       while (succ)
       {
         tasks->work_started();
-        val  += fun(*tasks, work);
+        val  += fun(*tasks, std::move(work));
         tasks->work_completed();
 
         succ  = tasks->deq(work);
       }
-
-      tasks->check_active();
-    } while (tasks->has_work());
+    } while (tasks->work_available());
 
     *res = val;
-
-#if PRINT_STATS
-    work[thrnum].num       = P::tq_loc->tasks_done;
-    work[thrnum].core_last = sched_getcpu();
-#endif
 
     // \todo consider detaching threads here
     tasks->qrelease_memory();
@@ -929,6 +1078,75 @@ namespace uab
   }
 */
 
+#if UCL_RUNTIME_DATA
+  template <class T>
+  static inline
+  void log_telemetry(std::ostream& os, ucl::perthread_pool<T>& pool)
+  {
+    typedef typename ucl::perthread_pool<T>::tasq tasq;
+
+    size_t total_stolen = 0;
+    size_t total_tasks  = 0;
+    size_t total_task_acq = 0;
+    size_t total_task_acq_tries = 0;
+
+    for (size_t i = 0; i < pool.MAXTQ; ++i)
+    {
+      tasq& tsk = *pool.taskq[i].val;
+
+      total_tasks          += tsk.tasks_done;
+      total_stolen         += tsk.stolen;
+      total_task_acq       += tsk.task_acq;
+      total_task_acq_tries += tsk.task_acq_tries;
+
+      os << "* t" << i
+         << "   " << tsk.tasks_done
+         << " (" << tsk.stolen << "/" << tsk.task_acq << "/" << tsk.task_acq_tries
+         << ")"
+         << std::endl;
+    }
+
+    os << "**** totals: " << total_tasks
+       << " (" << total_stolen << " " << ((total_stolen * 100.0) / (total_tasks))
+       << "%/" << total_task_acq << "/" << total_task_acq_tries << ")"
+       << std::endl;
+  }
+#endif /* UCL_RUNTIME_DATA */
+
+
+  /// executes fun over the taskpool
+  /// \tparam TaskFunctor a functor being able to execute tasks in a TaskPool
+  ///         (required to implement the TaskFunctor concept).
+  /// \tparam TaskPool a class that keeps track of available tasks
+  ///         (required to implement the TaskPool concept).
+  /// \param fun functor that accepts a pool and a task
+  /// \param pool a task-pool
+  template <class TaskFunctor, class TaskPool>
+  auto execute_pool(TaskFunctor fun, TaskPool& pool)
+       -> decltype( fun(pool, std::move(typename TaskPool::value_type())) )
+  {
+    typedef decltype( fun(pool, std::move(typename TaskPool::value_type())) ) R;
+
+    size_t numthreads = pool.num_threads();
+    R      res;
+
+    arch_model::set_threadinfo_info(numthreads);
+
+    spawn_threads(0, 0, numthreads, &res, &pool, fun);
+#if UCL_RUNTIME_DATA
+    log_telemetry(std::cerr, pool);
+
+    log_epoch_telemetry(std::cerr, pool.get_allocator());
+#endif /* UCL_RUNTIME_DATA */
+    return res;
+  }
+
+  template <class T>
+  using default_task_allocator = lockfree::epoch_manager<T, std::allocator>;
+
+  template <class T>
+  using fifo_queue_pool = ucl::perthread_pool<flatQ<T, default_task_allocator<T> > >;
+
   /// spawns numthread threads and calls fun(task)
   /// \tparam F type of functor
   /// \tparam T task type
@@ -961,30 +1179,20 @@ namespace uab
   ///
   ///    int res = execute_tasks(20 /* threads */, fib(), 10 /* argument to fib */);
   /// \endcode
-  template <class F, class T>
-  auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T>(0,task), task))
+  template <class F, class T, class UclAlloc = lockfree::epoch_manager<T, std::allocator> >
+  static inline
+  auto execute_tasks(size_t numthreads, F fun, T&& task)
+       -> decltype(execute_pool(fun, *new fifo_queue_pool<T>(numthreads, std::move(task))))
   {
-    typedef decltype(fun(*new pool<T>(numthreads, task), task)) R;
+    fifo_queue_pool<T> pool(numthreads, std::move(task));
 
-    arch_model::set_threadinfo_info(numthreads);
-
-    pool<T> taskpool(numthreads, task);
-    R       res;
-
-    spawn_threads(0, 0, numthreads, &res, &taskpool, fun);
-    //~ spawn_spawner(0, numthreads, &res, &taskpool, fun);
-
-#if PRINT_STATS
-    for (size_t i = 0; i < NUMTHREADS; ++i)
-    {
-      std::cout << std::setw(2) << i << ": " << work[i].num
-                << "   @" << work[i].core_init << " - " << work[i].core_last
-                << std::endl;
-    }
-#endif
-
-    return res;
+    return execute_pool(fun, pool);
   }
+
+
+
+#if OBSOLETE
+  use execute_tasks above
 
   /// spawns numthread threads and calls fun(task)
   /// \tparam A allocator/memory manager
@@ -1000,28 +1208,16 @@ namespace uab
   ///    int res = execute_tasks<gc_manager>(20, fib(), 10);
   /// \endcode
   template <class A, class F, class T>
-  auto execute_tasks(size_t numthreads, F fun, T task) -> decltype(fun(*new pool<T,A>(0,task), task))
+  static inline
+  auto execute_tasks(size_t numthreads, F fun, T&& task)
+       -> decltype(execute_pool(fun, *new perthread_pool<T,A>(numthreads, std::move(task))))
   {
-    typedef decltype(fun(*new pool<T,A>(task), task)) R;
+    perthread_pool<T,A> taskpool(numthreads, std::move(task));
 
-    arch_model::set_threadinfo_info(numthreads);
-
-    pool<T> taskpool(task);
-    R       res;
-
-    spawn_threads(0, numthreads, &res, &taskpool, fun);
-
-#if PRINT_STATS
-    for (size_t i = 0; i < NUMTHREADS; ++i)
-    {
-      std::cout << std::setw(2) << i << ": " << work[i].num
-                << "   @" << work[i].core_init << " - " << work[i].core_last
-                << std::endl;
-    }
+    return execute_pool(fun, taskpool);
+  }
 #endif
 
-    return res;
-  }
-} // end namespace uab
+} // end namespace ucl
 
-#endif /* _TASKS_HPP */
+#endif /* _UCL_TASK_HPP */

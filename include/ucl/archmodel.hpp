@@ -7,7 +7,7 @@
 //
 // provides implementation of hardware models
 
-namespace uab
+namespace ucl
 {
   size_t thread_mult;  // == NUM_THREADS_PER_CORE if hyperthreading is not needed
   size_t thread_mask; // used to identify sibling hyperthreads
@@ -27,21 +27,25 @@ namespace uab
     }
   };
 
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined __sun
   template <size_t NSOCKETS, size_t NCORES, size_t NTHREADS>
   struct intel_arch
   {
-    static const size_t NUM_SOCKETS          = NSOCKETS;
-    static const size_t NUM_CORES_PER_SOCKET = NCORES;
-    static const size_t NUM_THREADS_PER_CORE;
-    static const size_t NUM_CPUS             = NUM_CORES_PER_SOCKET * NTHREADS;
-    static const size_t NUM_CORES            = NUM_CPUS * NTHREADS;
+    enum 
+    { 
+      NUM_SOCKETS          = NSOCKETS,
+      NUM_CORES_PER_SOCKET = NCORES,
+      NUM_THREADS_PER_CORE = NTHREADS,
+      NUM_CPUS             = NUM_CORES_PER_SOCKET * NTHREADS,
+      NUM_CORES            = NUM_CPUS * NTHREADS
+    };
 
     static
     void set_threadinfo_info(size_t numthreads)
     {
       assert(numthreads <= NUM_CORES);
 
-      thread_mult = std::min(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
+      thread_mult = std::min<size_t>(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
 
       thread_mask = NUM_THREADS_PER_CORE / thread_mult;
       assert(thread_mask && (thread_mask & (thread_mask-1)) == 0);
@@ -84,26 +88,25 @@ namespace uab
     }
   };
 
-  // \note separated out due to issues with icc 15
-  template <size_t NSOCKETS, size_t NCORES, size_t NTHREADS>
-  const size_t intel_arch<NSOCKETS,NCORES,NTHREADS>::NUM_THREADS_PER_CORE = NTHREADS;
-
 
   template <size_t NSOCKETS, size_t NCORES, size_t NTHREADS>
   struct power_arch
   {
-    static const size_t NUM_SOCKETS          = NSOCKETS;
-    static const size_t NUM_CORES_PER_SOCKET = NCORES;
-    static const size_t NUM_THREADS_PER_CORE = NTHREADS;
-    static const size_t NUM_CPUS             = NUM_CORES_PER_SOCKET * NUM_SOCKETS;
-    static const size_t NUM_CORES            = NUM_CPUS * NUM_THREADS_PER_CORE;
-
+    enum 
+    { 
+      NUM_SOCKETS          = NSOCKETS,
+      NUM_CORES_PER_SOCKET = NCORES,
+      NUM_THREADS_PER_CORE = NTHREADS,
+      NUM_CPUS             = NUM_CORES_PER_SOCKET * NTHREADS,
+      NUM_CORES            = NUM_CPUS * NTHREADS
+    };
+    
     static
     void set_threadinfo_info(size_t numthreads)
     {
       assert(numthreads <= NUM_CORES);
 
-      thread_mult = std::min(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
+      thread_mult = std::min<size_t>(NUM_CORES / numthreads, NUM_THREADS_PER_CORE);
 
       thread_mask = NUM_THREADS_PER_CORE / thread_mult;
       assert(thread_mask && (thread_mask & (thread_mask-1)) == 0);
@@ -114,7 +117,7 @@ namespace uab
     static
     void bind_to_core(pthread_t thr, size_t num)
     {
-      static_assert((NUM_THREADS_PER_CORE & (NUM_THREADS_PER_CORE-1)) == 0, "assumed power of 2");
+      static_assert((NTHREADS & (NTHREADS-1)) == 0, "assumed power of 2");
 
       //  0 -> 0,  1 ->  8, 2 -> 16, .., 19 -> 152
       // 20 -> 1, 21 ->  9,
@@ -142,5 +145,6 @@ namespace uab
       return 2;
     }
   };
+#endif /* exclude non-linux platforms */
 }
 #endif /* _ARCHMODEL_H */

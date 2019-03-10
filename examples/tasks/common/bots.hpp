@@ -1,12 +1,12 @@
 /*
- * BLAZE Task testing framework
+ * The Unleashed Concurrency Library's Task testing framework
  *
- * This file is part of the Blaze testing and sample codes. It defines
- * inlineable alternatives to functions and macros defined in the Barcelona
- * OpenMP Tasks Suite's bots.h file.
+ * This file is part of the UCL testing and sample codes. It defines
+ * inlineable alternatives to functions and macros needed by code ported
+ * from the Barcelona OpenMP Tasks Suite's bots.h file.
  *
- * (c) Peter Pirkelbauer, 2018
- * UAB - University of Alabama at Birmingham
+ * Copyright (c) 2019, Peter Pirkelbauer
+ * Copyright (c) 2018, University of Alabama at Birmingham
  */
 
 /****************************************************************************/

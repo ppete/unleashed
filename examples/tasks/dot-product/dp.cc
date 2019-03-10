@@ -1,9 +1,11 @@
 /// Task-based approach for computing A . B / |A| * |B|
 ///
-/// Implementer: Peter Pirkelbauer (UAB)
+/// Implementer: Peter Pirkelbauer
 
 /**
- * This program is part of the Blaze-Task Test Suite
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
  * All rights reserved.
@@ -43,7 +45,7 @@
 
 #include "../common/common-includes.hpp"
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 // Problem size
 #ifndef PROBLEM_SIZE
@@ -86,7 +88,7 @@ void dp_compute( G& taskgroup,
                  D* rhs,
                  size_t lo,
                  size_t hi,
-                 uab::simple_reducer<dp_result<D> >& rdcr
+                 ucl::simple_reducer<dp_result<D> >& rdcr
                )
 {
   while (lo + 1 < hi)
@@ -110,11 +112,11 @@ void dp_compute( G& taskgroup,
 
 
 template <class D>
-D dp_calc(D* lhs, D* rhs, size_t len)
+D dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len)
 {
-  tbb::task_scheduler_init           init(NUMTHREADS);
+  tbb::task_scheduler_init           init(numthreads);
   tbb::task_group                    g;
-  uab::simple_reducer<dp_result<D> > reducer;
+  ucl::simple_reducer<dp_result<D> > reducer;
 
   dp_compute(g, lhs, rhs, 0, len, reducer);
   g.wait();
@@ -126,7 +128,7 @@ D dp_calc(D* lhs, D* rhs, size_t len)
 
 #endif /* TBB_VERSION */
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
 template <class D>
 struct dp_task
@@ -162,13 +164,13 @@ struct dp_operator
 };
 
 template <class D>
-auto dp_calc(D* lhs, D* rhs, size_t len) -> D
+auto dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len) -> D
 {
-  dp_result<D> res = uab::execute_tasks(NUMTHREADS, dp_operator<D>{lhs,rhs}, dp_task<D>{ 0, len });
+  dp_result<D> res = ucl::execute_tasks_x(numthreads, dp_operator<D>{lhs,rhs}, dp_task<D>{ 0, len });
 
   return res.product / (std::sqrt(res.lhs_len_sq) * std::sqrt(res.rhs_len_sq));
 }
-#endif /* BLAZE__VERSION */
+#endif /* UCL_VERSION */
 
 #if OMP_VERSION
 
@@ -203,13 +205,11 @@ void dp_compute(D* lhs, D* rhs, size_t lo, size_t hi)
 
 
 template <class D>
-auto dp_calc(D* lhs, D* rhs, size_t len) -> D
+auto dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len) -> D
 {
-  omp_set_num_threads(NUMTHREADS);
-
   reduction_type res;
 
-  #pragma omp parallel firstprivate(lhs, rhs, len)
+  #pragma omp parallel num_threads(numthreads) firstprivate(lhs, rhs, len)
   {
     red_product = red_lhs_sum_sq = red_rhs_sum_sq = 0;
 
@@ -234,19 +234,6 @@ auto dp_calc(D* lhs, D* rhs, size_t len) -> D
 #endif /* OMP_VERSION */
 
 #if CILK_VERSION
-
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
 
 template <class D>
 void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
@@ -274,9 +261,9 @@ void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
 
 
 template <class D>
-auto dp_calc(D* lhs, D* rhs, size_t len) -> D
+auto dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len) -> D
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
 
   cilk::reducer_opadd<D> product;
   cilk::reducer_opadd<D> lhs_len_sq;
@@ -346,7 +333,7 @@ void reduce(void* target, const void* source)
 }
 
 template <class D>
-auto dp_calc(D* lhs, D* rhs, size_t len) -> D
+auto dp_calc(D* lhs, D* rhs, size_t /*numthreads*/, size_t len) -> D
 {
   dp_result<D> res { 0, 0, 0 };
   qt_sinc_t*   sinc = qt_sinc_create(sizeof(dp_result<D>), &res, reduce<D>, 1);
@@ -372,21 +359,28 @@ void init_vectors(D* lhs, D* rhs, size_t len)
   }
 }
 
-int main()
+int main(int argc, char** args)
 {
+  size_t num_threads = NUMTHREADS;
+  size_t num_elems   = PROBLEM_SIZE;
+
+  if (argc > 1) num_threads = aux::as<size_t>(*(args+1));
+  if (argc > 2) num_elems   = aux::as<size_t>(*(args+2));
+
+
 #if QTHREADS_VERSION
   init_qthreads(NUMTHREADS);
 #endif /* QTHREADS_VERSION */
 
-  product_type* lhs = new product_type[PROBLEM_SIZE];
-  product_type* rhs = new product_type[PROBLEM_SIZE];
+  product_type* lhs = new product_type[num_elems];
+  product_type* rhs = new product_type[num_elems];
 
-  init_vectors(lhs, rhs, PROBLEM_SIZE);
+  init_vectors(lhs, rhs, num_elems);
 
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
   time_point     starttime = std::chrono::system_clock::now();
 
-  product_type res = dp_calc(lhs, rhs, PROBLEM_SIZE);
+  product_type res = dp_calc(lhs, rhs, num_threads, num_elems);
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();

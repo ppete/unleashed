@@ -1,15 +1,17 @@
 /**
  * A simple task based implementation to compute fibonacci numbers
  *
- * Implementer: Peter Pirkelbauer (UAB) - 2018
+ * Implementer: Peter Pirkelbauer (LLNL)
  *
  * Implementer: The code under QTHREADS_ORIGINAL was taken from the qthreads
- *    distribution. Qthreads are also distributed under the same BSD licens.
+ *    distribution. Qthreads are also distributed under the same BSD license.
  *    Copyrights to that portion of code are retained by the U.S. government.
  */
 
 /**
- * This program is part of the Blaze-Task Test Suite
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
  * All rights reserved.
@@ -50,7 +52,7 @@
 
 #include "../common/common-includes.hpp"
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 #ifndef PROBLEM_SIZE
 #define PROBLEM_SIZE (40)
@@ -108,65 +110,48 @@ struct histogram
 
 //~ histogram<long double> hist(0.0, 1.0, 100);
 
-static inline
-size_t thread_num()
-{
-  return omp_get_thread_num();
-}
+fib_type partialresult;
+#pragma omp threadprivate(partialresult)
 
 template <class I>
-void fib_task(I task, uab::aligned_type<std::pair<I, size_t>, CACHELINESZ>* s)
+void fib_task(I task)
 {
-  size_t thrnum = thread_num();
-
-  if (task <= 1) { s[thrnum].val.first += task; return; }
+  if (task <= 1) { partialresult += task; return; }
 
   while (--task > 1)
   {
     if ((CUTOFF == 0) || (task >= CUTOFF))
-  {
-    #pragma omp task
-      fib_task<I>(task-1, s);
+    {
+      #pragma omp task
+      fib_task<I>(task-1);
     }
     else
     {
-      fib_task<I>(task-1, s);
+      fib_task<I>(task-1);
     }
   }
 
-  s[thrnum].val.first  += 1;
-  s[thrnum].val.second += 1;
+  partialresult += 1;
 }
 
 template <class I>
-auto fib_task(I num) -> std::pair<I, size_t>
+auto fib_task(size_t numthreads, I num) -> std::pair<I, size_t>
 {
-  uab::aligned_type<std::pair<I, size_t>, CACHELINESZ> s[NUMTHREADS];
   I                                                    res  = 0;
   size_t                                               ctr  = 1;
 
-  omp_set_num_threads(NUMTHREADS);
-
-  #pragma omp parallel firstprivate(num) shared(res,ctr,s)
+  #pragma omp parallel num_threads(numthreads) firstprivate(num) shared(res,ctr)
   {
-    size_t thrnum = thread_num();
-
-    assert(thrnum < NUMTHREADS);
-    s[thrnum] = std::make_pair(I(0), size_t(0));
+    partialresult = I();
 
     #pragma omp single
+    #pragma omp taskgroup
     {
-      #pragma omp taskgroup
-      {
-        fib_task(num, s);
-      }
+      fib_task(num);
     }
 
     #pragma omp atomic
-    res += s[thrnum].val.first;
-
-    #pragma omp atomic
-    ctr += s[thrnum].val.second;
+    res += partialresult;
   }
 
   //~ hist.print();
@@ -183,7 +168,7 @@ auto fib_task(I num) -> std::pair<I, size_t>
 #if TBB_VERSION
 
 template <class G, class I>
-auto compute_fib(G& taskgroup, I task, uab::simple_reducer<I>& reducer) -> void
+auto compute_fib(G& taskgroup, I task, ucl::simple_reducer<I>& reducer) -> void
 {
   if (task <= 1) { reducer += task; return; }
 
@@ -192,8 +177,8 @@ auto compute_fib(G& taskgroup, I task, uab::simple_reducer<I>& reducer) -> void
     if ((CUTOFF == 0) || (task >= CUTOFF))
       taskgroup.run( [&taskgroup, task, &reducer]()->void
                      { compute_fib(taskgroup, task-1, reducer);
-                   }
-                 );
+                     }
+                   );
     else
       compute_fib(taskgroup, task-1, reducer);
   }
@@ -202,11 +187,11 @@ auto compute_fib(G& taskgroup, I task, uab::simple_reducer<I>& reducer) -> void
 }
 
 template <class I>
-auto fib_task(I num) -> std::pair<I,size_t>
+auto fib_task(size_t numthreads, I num) -> std::pair<I,size_t>
 {
-  tbb::task_scheduler_init init(NUMTHREADS);
+  tbb::task_scheduler_init init(numthreads);
   tbb::task_group          g;
-  uab::simple_reducer<I>   reducer(0);
+  ucl::simple_reducer<I>   reducer(0);
 
   compute_fib(g, num, reducer);
 
@@ -217,12 +202,11 @@ auto fib_task(I num) -> std::pair<I,size_t>
 #endif /* TBB_VERSION */
 
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
-template <class I>
 struct compute_fib
 {
-  template <class Pool>
+  template <class Pool, class I>
   I operator()(Pool& pool, I task)
   {
     if (task <= 1) return task;
@@ -242,29 +226,16 @@ struct compute_fib
 };
 
 template <class I>
-std::pair<I, size_t> fib_task(I num)
+std::pair<I, size_t> fib_task(size_t numthreads, I num)
 {
-  compute_fib<I> fun;
+  I res = ucl::execute_tasks_x(numthreads, compute_fib(), I{num});
 
-  return std::make_pair(uab::execute_tasks(NUMTHREADS, fun, num), 0);
+  return std::make_pair(res, 0);
 }
 
-#endif /* BLAZE_VERSION */
+#endif /* UCL_VERSION */
 
 #if CILK_VERSION
-
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
 
 template <class I>
 I compute_fib_nofork(I task)
@@ -302,9 +273,9 @@ void compute_fib(I task, cilk::reducer_opadd<I>& sum)
 }
 
 template <class I>
-std::pair<I, size_t> fib_task(I num)
+std::pair<I, size_t> fib_task(size_t numthreads, I num)
 {
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
 
   cilk::reducer_opadd<I> sum;
 
@@ -357,8 +328,8 @@ aligned_t compute_fib(void* qtsk)
 
     if ((CUTOFF == 0) || (task.num >= CUTOFF))
     {
-    qt_sinc_expect(task.sinc, 1);
-    qthread_fork_copyargs( compute_fib<I>, &tsk2, sizeof(qtask<I>), nullptr );
+      qt_sinc_expect(task.sinc, 1);
+      qthread_fork_copyargs( compute_fib<I>, &tsk2, sizeof(qtask<I>), nullptr );
     }
     else
     {
@@ -381,7 +352,7 @@ void reduce(void* target, const void* source)
 
 
 template <class I>
-std::pair<I, size_t> fib_task(I num)
+std::pair<I, size_t> fib_task(size_t /*numthreads*/, I num)
 {
   I          result;
   qt_sinc_t* sinc   = qt_sinc_create(sizeof(I), &result, reduce<I>, 1);
@@ -433,7 +404,7 @@ aligned_t fib(void *arg_)
 /*** end SANDIA */
 
 template <class I>
-std::pair<I, size_t> fib_task(I num)
+std::pair<I, size_t> fib_task(size_t /*numthreads*/, I num)
 {
   aligned_t result = fib<I>(&num);
 
@@ -442,12 +413,18 @@ std::pair<I, size_t> fib_task(I num)
 
 #endif /* QTHREADS_VERSION_ORIGINAL */
 
-int main()
+int main(int argc, char** args)
 {
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
+  size_t   num_threads = NUMTHREADS;
+  fib_type num         = PROBLEM_SIZE;
+
+  if (argc > 1) num_threads = aux::as<size_t>(*(args+1));
+  if (argc > 2) num         = aux::as<fib_type>(*(args+2));
+
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
+  init_qthreads(num_threads);
 #endif
 
   time_point     starttime = std::chrono::system_clock::now();
@@ -455,14 +432,14 @@ int main()
   // executes loop in parallel
   //   and uses a reduction algorithm to combine all pi values that were
   //   computed across threads.
-  std::pair<fib_type, size_t> num  = fib_task(PROBLEM_SIZE);
+  std::pair<fib_type, size_t> res  = fib_task(num_threads, num);
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 
-  std::cout << "num    = " << PROBLEM_SIZE << std::endl;
-  std::cout << "fib    = " << num.first    << std::endl;
-  std::cout << "leaves = " << num.second   << std::endl;
+  std::cout << "num    = " << num          << std::endl;
+  std::cout << "fib    = " << res.first    << std::endl;
+  std::cout << "leaves = " << res.second   << std::endl;
   std::cout << "time   = " << elapsedtime  << "ms" << std::endl;
   std::cerr << elapsedtime << std::endl;
   return 0;

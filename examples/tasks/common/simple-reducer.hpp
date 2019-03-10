@@ -11,15 +11,15 @@
 
 #include <cassert>
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
-namespace uab
+namespace ucl
 {
   /// DO NOT USE IN REAL CODE!!!
   template <class T, size_t MAXTHR = 256>
   struct simple_reducer
   {
-    typedef uab::aligned_type<T, CACHELINESZ> entry_t;
+    typedef ucl::aligned_type<T, CACHELINESZ> entry_t;
 
     simple_reducer(T init = T())
     : ctr(1)

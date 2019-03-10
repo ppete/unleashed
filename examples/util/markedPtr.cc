@@ -7,9 +7,9 @@
 
 int main()
 {
-  typedef uab::MarkablePointer<int>::mark_type mark_t;
+  typedef ucl::MarkablePointer<int>::mark_type mark_t;
 
-  uab::MarkablePointer<int> mp(nullptr);
+  ucl::MarkablePointer<int> mp(nullptr);
 
   const int* ptr1 = mp.load();
   const int* ptr2 = mp.load(std::memory_order_relaxed);

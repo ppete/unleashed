@@ -103,8 +103,8 @@ test_stacks()
   test_simple_make stack TEST_PUB_SCAN_MANAGER 0
   test_simple_make stack TEST_GC_MANAGER 0
   test_simple_make stack TEST_STD_LOCKGUARD 0
-  test_simple_make stack TEST_UAB_LOCKGUARD 0
-  #~ test_stack_make TEST_UAB_ELIDEGUARD 0
+  test_simple_make stack TEST_UNLEASHED_LOCKGUARD 0
+  #~ test_stack_make TEST_UNLEASHED_ELIDEGUARD 0
 }
 
 test_queues()
@@ -114,8 +114,8 @@ test_queues()
   test_simple_make queue TEST_PUB_SCAN_MANAGER 0
   test_simple_make queue TEST_GC_MANAGER 0
   test_simple_make queue TEST_STD_LOCKGUARD 0
-  test_simple_make queue TEST_UAB_LOCKGUARD 0
-  #~ test_stack_make TEST_UAB_ELIDEGUARD 0
+  test_simple_make queue TEST_UNLEASHED_LOCKGUARD 0
+  #~ test_stack_make TEST_UNLEASHED_ELIDEGUARD 0
 }
 
 
@@ -129,9 +129,9 @@ COMPILERS="$COMPILERS icpc xlc++ sunCC"
 ###
 # DATA STRUCTURE TESTS
 
-# TESTS="test_queues"
+TESTS="test_queues"
 
-TESTS="test_skiplists test_stacks test_queues"
+#~ TESTS="test_skiplists test_stacks test_queues"
 
 for arg in $COMPILERS
 do

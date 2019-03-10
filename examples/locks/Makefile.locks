@@ -1,82 +1,24 @@
 
-# Architecture specific optimization flags
-#   PowerPC: use optimization -mcpu=native for architecture specific compilation
-#   x86/ARM: use optimization -march=native for architecture specific compilation
-ifeq ($(CXXOPT),)
-	CXXOPT=-ggdb -O2 -DNDEBUG=1
-endif
-
-ifeq ($(THISARCH), INTEL)
-	CXXOPT+=-march=native
-endif
-
-ifeq ($(THISARCH), POWER8)
-	CXXOPT+=-mcpu=native
-endif
-
-ifeq ($(THISARCH), ARM)
-	CXXOPT+=-march=native
-endif
+include ../make-util/discover-toolset.mk
 
 # Output directory
-ifeq ($(COMPDIR),)
-	COMPDIR=.
-endif
+OUTPUTDIR?=.
 
+INCLUDE:=$(UCL_HOME)/include
 
-# libraries
-INCDIR=
-LIBS=
+TEST_LOCK?=TEST_MUTEX
 
-TARGET=lockTest.bin
-SOURCE=lockTest.cc
-INCLUDE=../include
-
-# ifeq ($(TEST_HTM),)
-#  DEFINES+= -D$(TEST_CONTAINER)=1
-#	TXFLAGS=
-#else
-#  DEFINES+= -DHTM_ENABLED=1
-#
-#  ifeq ($(THISARCH),)
-#    $(error THISARCH not set (needs to be INTEL or POWER8))
-#  endif
-#
-#	ifeq ($(THISARCH), INTEL)
-#		TXFLAGS=-mrtm
-#	endif
-#
-#	ifeq ($(THISARCH), POWER8)
-#		TXFLAGS=-mhtm
-#	endif
-#endif
-
-CXXFLAGS=-std=c++11 -Wall -Wextra -pedantic -pthread
-
-ifeq ($(TEST_LOCK),)
-  TEST_LOCK=TEST_MUTEX
-endif
-
-
-#ifeq ($(TEST_ALLOC),TEST_GC_MANAGER)
-#  ifneq ($(GC_HOME),)
-#    INCDIR+=-I$(GC_HOME)/include
-#    LIBS+=-L$(GC_HOME)/lib
-#  endif
-#
-#  LIBS+=-lgc # disable when compiling w/o garbage collector=
-#else
-#  DEFINES+= -DWITHOUT_GC=1
-#endif
-
-# LIBS+=-latomic # needed on some architectures
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(DBGFLAG)
 
 .PHONY: test clean
 
-test: $(COMPDIR)/$(TARGET)
+test: $(OUTPUTDIR)/testLock.bin $(OUTPUTDIR)/testElidableLock.bin
 
-$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/locks.hpp
-	$(CXX) $(CXXOPT) $(CXXFLAGS) -D$(TEST_LOCK)=1 -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
+$(OUTPUTDIR)/testLock.bin: testLock.cc $(INCLUDE)/ucl/locks.hpp
+	$(CXX) $(CXXFLAGS) -D$(TEST_LOCK)=1 -I$(INCLUDE) $< -o $@
+
+$(OUTPUTDIR)/testElidableLock.bin: testElidableLock.cc $(INCLUDE)/ucl/locks.hpp
+	$(CXX) $(CXXFLAGS) $(HTMFLAG) -DHTM_ENABLED=1 -I$(INCLUDE) $< -o $@
 
 clean:
-	rm -f $(COMPDIR)/*.o $(COMPDIR)/*.bin $(TARGET)
+	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin

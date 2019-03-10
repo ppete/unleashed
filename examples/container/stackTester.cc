@@ -11,11 +11,11 @@
   #define GC_DEBUG 1
   #include <gc/gc.h>
 
-  #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
+  #include "ucl/gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITH_GC */
 
-#include "locks.hpp"
-#include "stack.hpp"
+#include "ucl/locks.hpp"
+#include "ucl/stack.hpp"
 
 
 namespace lf = lockfree;
@@ -59,23 +59,23 @@ using default_lock_guard = std::lock_guard<M>;
 
 typedef std::mutex           default_mutex;
 
-#elif defined TEST_UAB_LOCKGUARD
+#elif defined TEST_UNLEASHED_LOCKGUARD
 
 template <class M>
-using default_lock_guard = uab::lockable_guard<M>;
+using default_lock_guard = ucl::lockable_guard<M>;
 
-typedef uab::ttas_lock       default_mutex;
+typedef ucl::ttas_lock       default_mutex;
 
-#elif defined TEST_UAB_ELIDEGUARD
+#elif defined TEST_UNLEASHED_ELIDEGUARD
 
 #ifndef HTM_ENABLED
-#error "HTM_ENABLED not set for uab::elide_guard"
+#error "HTM_ENABLED not set for ucl::elide_guard"
 #endif
 
 template <class M>
-using default_lock_guard = uab::elidable_guard<M>;
+using default_lock_guard = ucl::elidable_guard<M>;
 
-typedef uab::ttas_lock       default_mutex;
+typedef ucl::ttas_lock       default_mutex;
 
 #else
 

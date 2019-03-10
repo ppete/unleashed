@@ -6,8 +6,8 @@
 #include <list>
 #include <iomanip>
 
-#include "generalutil.hpp"
-#include "locks.hpp"
+#include "ucl/generalutil.hpp"
+#include "ucl/locks.hpp"
 
 #ifndef PNOITER
 #define PNOITER 1000
@@ -41,12 +41,12 @@ void sync_start()
 
 static size_t         total_time(0);
 static size_t         counter(0);
-static uab::ttas_lock lock;
+static ucl::ttas_lock lock;
 
 static
 void test()
 {
-  auto guard = uab::elide_guard(5, lock);
+  auto guard = ucl::elide_guard(5, lock);
 
   ++counter;
 }
@@ -126,7 +126,7 @@ int main(int argc, char** args)
 
   try
   {
-    std::cout << "*** skiplist test " << pnoiter << "<ops  thrds>" << num_threads << std::endl;
+    std::cout << "*** elideguard test " << pnoiter << "<ops  thrds>" << num_threads << std::endl;
 
     for (size_t i = 0; i < num_runs; ++i)
     {

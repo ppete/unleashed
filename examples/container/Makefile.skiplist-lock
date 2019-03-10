@@ -1,66 +1,35 @@
-# Architecture specific optimization flags
-#   PowerPC: use optimization -mcpu=native for architecture specific compilation
-#   x86/ARM: use optimization -march=native for architecture specific compilation
-ifeq ($(CXXOPT),)
-	CXXOPT=-ggdb -O2 -DNDEBUG=1
-endif
-
-ifeq ($(THISARCH), INTEL)
-	CXXOPT+=-march=native
-endif
-
-ifeq ($(THISARCH), POWER8)
-	CXXOPT+=-mcpu=native
-endif
-
+include ../make-util/discover-toolset.mk
 
 # Output directory
-ifeq ($(COMPDIR),)
-	COMPDIR=.
-endif
+OUTPUTDIR ?= ./tmp
 
-ifeq ($(TEST_ALLOC),)
-  #TEST_ALLOC=TEST_EPOCH_MANAGER
-  #TEST_ALLOC=TEST_REFCOUNT_MANAGER
-  TEST_ALLOC=TEST_NO_MANAGER
-  #TEST_ALLOC=TEST_PUB_SCAN_MANAGER
-  # TEST_NO_MANAGER TEST_EPOCH_MANAGER TEST_PUB_SCAN_MANAGER TEST_GC_MANAGER TEST_REF_COUNTER
-endif
+## TEST_NO_MANAGER TEST_EPOCH_MANAGER TEST_PUB_SCAN_MANAGER TEST_GC_MANAGER TEST_REF_COUNTER
+TEST_ALLOC?=TEST_NO_MANAGER
+#~ TEST_ALLOC?=TEST_EPOCH_MANAGER
+#~ TEST_ALLOC?=TEST_REFCOUNT_MANAGER
+#~ TEST_ALLOC?=TEST_PUB_SCAN_MANAGER
 
-ifeq ($(TEST_CONTAINER),)
-  TEST_CONTAINER=TEST_LOCKING_SKIPLIST
-endif
+
+TEST_CONTAINER?=TEST_LOCKING_SKIPLIST
 
 # libraries
 INCDIR=
 LIBS=
 
-SOURCE=parSkipListUniqueElems-lock.cc
-TARGET=lock-skiplist.bin
-INCLUDE=../include
-DEFINES=-D$(TEST_ALLOC)=1
+SOURCE:=parSkipListUniqueElems-lock.cc
+TARGET:=lock-skiplist.bin
+INCLUDE:=$(UCL_HOME)/include
+DEFINES:=-D$(TEST_ALLOC)=1
 
 
 ifeq ($(TEST_HTM),)
   DEFINES+= -D$(TEST_CONTAINER)=1
-	TXFLAGS=
+  HTMFLAG:=
 else
   DEFINES+= -DHTM_ENABLED=1
-
-  ifeq ($(THISARCH),)
-    $(error THISARCH not set (needs to be INTEL or POWER8))
-  endif
-
-	ifeq ($(THISARCH), INTEL)
-		TXFLAGS=-mrtm
-	endif
-
-	ifeq ($(THISARCH), POWER8)
-		TXFLAGS=-mhtm
-	endif
 endif
 
-CXXFLAGS=-std=c++11 -Wall -Wextra -pedantic -pthread
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 ifeq ($(TEST_ALLOC),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -77,10 +46,10 @@ endif
 
 .PHONY: test clean
 
-test: $(COMPDIR)/$(TARGET)
+test: $(OUTPUTDIR)/$(TARGET)
 
-$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/pmemory.hpp $(INCLUDE)/skiplist.hpp $(INCLUDE)/atomicutil.hpp Makefile.skiplist
-	$(CXX) $(CXXOPT) $(CXXFLAGS) $(TXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
+$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/pmemory.hpp $(INCLUDE)/skiplist.hpp $(INCLUDE)/atomicutil.hpp Makefile.skiplist
+	$(CXX) $(CXXOPT) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
 clean:
-	rm -f $(COMPDIR)/*.o $(COMPDIR)/*.bin $(TARGET)
+	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)

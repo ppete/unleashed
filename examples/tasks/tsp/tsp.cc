@@ -1,9 +1,11 @@
 /// Task-based solution for the Traveling Salesman Problem
 ///
-/// Implementer: Christina Peterson (UCF), Peter Pirkelbauer (UAB)
+/// Implementers: Christina Peterson, Peter Pirkelbauer
 
 /**
- * This program is part of the Blaze-Task Test Suite
+ * The Unleashed Concurrency Library's Task testing framework
+ *
+ * Copyright (c) 2019, LLNL
  * Copyright (c) 2018, University of Central Florida
  * Copyright (c) 2018, University of Alabama at Birmingham
  *
@@ -47,7 +49,7 @@
 
 #include "../common/common-includes.hpp"
 
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 // Problem size
 #ifndef PROBLEM_SIZE
@@ -66,10 +68,10 @@ struct BranchSet
   int right_branch[PROBLEM_SIZE][PROBLEM_SIZE];
 };
 
+template <class _Bp = std::shared_ptr<BranchSet> >
 struct tsp_task
 {
-  typedef std::shared_ptr<BranchSet> branch_ptr;
-  //~ typedef BranchSet* branch_ptr;
+  typedef _Bp branch_ptr;
 
   int**      graph;
   branch_ptr branch;
@@ -85,6 +87,8 @@ struct tsp_task
   {}
 };
 
+typedef tsp_task<> default_tsp_task;
+
 void print_graph(int graph[PROBLEM_SIZE][PROBLEM_SIZE])
 {
   for(size_t i = 0; i < PROBLEM_SIZE; i++)
@@ -99,7 +103,7 @@ void print_graph(int graph[PROBLEM_SIZE][PROBLEM_SIZE])
 
 enum branch_kind
 {
-  INCLUDE = 1,
+  INCLUDE   = 1,
   EXCLUDE   = 2,
   UNDECIDED = 3
 };
@@ -176,9 +180,9 @@ void right_include_edges(BranchSet* branch, int* include_count, int* exclude_cou
   //printf("Inside right_include_edges\n");
   for (size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
-    if(j != i)
+    if (j != i)
     {
-      if(branch->right_branch[i][j] == UNDECIDED)
+      if (branch->right_branch[i][j] == UNDECIDED)
       {
         branch->right_branch[i][j] = INCLUDE;
         branch->right_branch[j][i] = INCLUDE;
@@ -186,7 +190,7 @@ void right_include_edges(BranchSet* branch, int* include_count, int* exclude_cou
         include_count[i] = include_count[i] + 1;
         include_count[j] = include_count[j] + 1;
 
-        if(include_count[j] == 2)
+        if (include_count[j] == 2)
         {
           right_exclude_edges(branch, include_count, exclude_count, j);
         }
@@ -200,9 +204,9 @@ void right_exclude_edges(BranchSet* branch, int* include_count, int* exclude_cou
   //printf("Inside right_exclude_edges\n");
   for (size_t j = 0; j < PROBLEM_SIZE; ++j)
   {
-    if(j != i)
+    if (j != i)
     {
-      if(branch->right_branch[i][j] == UNDECIDED)
+      if (branch->right_branch[i][j] == UNDECIDED)
       {
         branch->right_branch[i][j] = EXCLUDE;
         branch->right_branch[j][i] = EXCLUDE;
@@ -262,7 +266,7 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
   {
     for(size_t j = 0; j < PROBLEM_SIZE; ++j)
     {
-      if(i == j)
+      if (i == j)
       {
         branches->left_branch[i][i] = UNDECIDED;
         branches->right_branch[i][i] = UNDECIDED;
@@ -318,7 +322,7 @@ BranchSet* create_branch(int explore[PROBLEM_SIZE][PROBLEM_SIZE])
             right_include_edges(branches, right_inc_count, right_exc_count, j);
           }
 
-          if(right_exc_count[i] > (PROBLEM_SIZE - 3) || right_exc_count[j] > (PROBLEM_SIZE - 3))
+          if (right_exc_count[i] > (PROBLEM_SIZE - 3) || right_exc_count[j] > (PROBLEM_SIZE - 3))
           {
             //printf("Error: right_exc_count > (NUM_NODES - 3)\n");
             delete branches;
@@ -447,7 +451,7 @@ auto tsp_adaptive(G& taskgroup, T task) -> void // std::pair<D, size_t>
 
     if (pbranch == nullptr) return;
 
-    tsp_task::branch_ptr branch(pbranch);
+    default_tsp_task::branch_ptr branch(pbranch);
 
     T task2(task.graph, branch, true);
     taskgroup.run([&taskgroup, task2]()->void { tsp_adaptive(taskgroup, task2); });
@@ -456,38 +460,40 @@ auto tsp_adaptive(G& taskgroup, T task) -> void // std::pair<D, size_t>
   }
 }
 
-void tsp_launch(int** graph, BranchSet* branch, bool left)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
 
-  tbb::task_scheduler_init init(NUMTHREADS);
-  tbb::task_group          g;
-  tsp_task::branch_ptr    br(branch);
+  tbb::task_scheduler_init     init(numthreads);
+  tbb::task_group              g;
+  default_tsp_task::branch_ptr br(branch);
 
-  tsp_adaptive(g, tsp_task(graph, br, left));
+  tsp_adaptive(g, default_tsp_task(graph, br, left));
   g.wait();
   return;
 }
 #endif /* TBB_VERSION */
 
-#if BLAZE_VERSION
+#if UCL_VERSION
 
-typedef uab::Void result_type;
+typedef ucl::Void result_type;
 // typedef int result_type;
 
-template <class T>
 struct tsp_adaptive
 {
   tsp_adaptive() {}
 
-  result_type operator()(uab::pool<T>& tasks, T task)
+  template <class TaskPool>
+  result_type operator()(TaskPool& tasks, typename TaskPool::value_type task)
   {
-    result_type ctr(0); 
+    typedef typename TaskPool::value_type Task;
 
-    while(true)
+    result_type ctr(0);
+
+    while (true)
     {
       //base case
-      if(task.left == true)
+      if (task.left == true)
       {
         if (task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
         {
@@ -514,35 +520,36 @@ struct tsp_adaptive
 
       if (pbranch == nullptr) return ctr;
 
-      tsp_task::branch_ptr branch(pbranch);
+      default_tsp_task::branch_ptr branch(pbranch);
 
-      tasks.enq(T{task.graph, branch, true});
-      task = T{task.graph, branch, false};
+      tasks.enq(Task{task.graph, branch, true});
+      task = Task{task.graph, branch, false};
       ctr += 1;
     }
   }
 };
 
-void print(uab::Void) {}
+void print(ucl::Void) {}
 void print(int x) { std::cerr << x << std::endl; }
 
-void tsp_launch(int** graph, BranchSet* branch, bool left)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
 
-  tsp_adaptive<tsp_task>   fun;
-  tsp_task::branch_ptr     br(branch);
+  tsp_adaptive                 fun;
+  default_tsp_task::branch_ptr br(branch);
 
-  result_type res = uab::execute_tasks(NUMTHREADS, fun, tsp_task(graph, br, left));
+  result_type res = ucl::execute_tasks_x(numthreads, fun, default_tsp_task(graph, br, left));
 
-  print(res);  
+  print(res);
 }
-#endif /* BLAZE__VERSION */
+#endif /* UCL_VERSION */
 
 #if OMP_VERSION
 
-template <class T>
-auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
+typedef tsp_task<omp_shared_ptr<BranchSet> > omp_task;
+
+auto tsp_adaptive(omp_task task) -> void // std::pair<D, size_t>
 {
   while(true)
   {
@@ -574,35 +581,98 @@ auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
 
     if (pbranch == nullptr) return;
 
-    tsp_task::branch_ptr branch(pbranch);
-
-    T task2(task.graph, branch, true);
+    omp_task::branch_ptr branch(pbranch);
+    omp_task             task2(task.graph, branch, true);
 
     #pragma omp task firstprivate(task2)
     tsp_adaptive(task2);
 
-    task = T{task.graph, branch, false};
+    task = omp_task{task.graph, branch, false};
   }
 }
 
-void tsp_launch(int** graph, BranchSet* branch, bool left)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
-  omp_set_num_threads(NUMTHREADS);
 
-  tsp_task::branch_ptr    br(branch);
+  omp_task::branch_ptr br(branch);
 
-  #pragma omp parallel firstprivate(graph, br, left)
+  #pragma omp parallel num_threads(numthreads) firstprivate(graph, br, left)
   #pragma omp single
   {
     #pragma omp taskgroup
     {
-      tsp_adaptive(tsp_task(graph, br, left));
+      tsp_adaptive(omp_task(graph, br, left));
     }
   }
 }
 
 #endif /* OMP_VERSION */
+
+#if WOMP_VERSION
+
+template <class T>
+auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
+{
+  //base case
+  if (task.left == true)
+  {
+    if(task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
+    {
+      result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
+
+      upd_lower_bound_if_needed(result);
+      return;
+    }
+  }
+  else
+  {
+    if(task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
+    {
+      result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
+
+      upd_lower_bound_if_needed(result);
+      return;
+    }
+  }
+
+  BranchSet*           pbranch = task.left
+                                 ? create_branch(task.branch->left_branch)
+                                 : create_branch(task.branch->right_branch);
+
+  if (pbranch == nullptr) return;
+
+  T task2(task.graph, pbranch, true);
+
+  #pragma omp task firstprivate(task2)
+  tsp_adaptive(task2);
+
+  tsp_adaptive(T{task.graph, pbranch, false});
+
+  #pragma omp taskwait
+
+  delete pbranch;
+}
+
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
+{
+  min_path.store(std::numeric_limits<result_t>::max());
+
+  #pragma omp parallel num_threads(numthreads) firstprivate(graph, branch, left)
+  #pragma omp single
+  {
+    #pragma omp taskgroup
+    {
+      tsp_adaptive(tsp_task<BranchSet*>(graph, branch, left));
+    }
+  }
+
+  delete branch;
+}
+
+#endif /* WOMP_VERSION */
+
+
 
 #if CILK_VERSION
 
@@ -622,18 +692,6 @@ struct cilk_task
 };
 
 
-void set_cilk_workers(int n)
-{
-  assert(n <= 9999);
-
-  char str[5];
-
-  sprintf(str, "%d", n);
-
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success);
-}
-
 void tsp_adaptive(cilk_task task);
 
 static
@@ -642,7 +700,7 @@ BranchSet* tsp_adaptive_aux(cilk_task task)
   //base case
   if (task.left == true)
   {
-    if(task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
+    if (task.branch->left_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
     {
       result_t result = compute_lower_bound(task.graph, task.branch->left_branch);
 
@@ -652,7 +710,7 @@ BranchSet* tsp_adaptive_aux(cilk_task task)
   }
   else
   {
-    if(task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
+    if (task.branch->right_branch[PROBLEM_SIZE-1][PROBLEM_SIZE-2] != UNDECIDED)
     {
       result_t result = compute_lower_bound(task.graph, task.branch->right_branch);
 
@@ -691,10 +749,10 @@ void tsp_adaptive(cilk_task task)
 }
 
 
-void tsp_launch(int** graph, BranchSet* branch, bool left)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
-  set_cilk_workers(NUMTHREADS);
+  set_cilk_workers(numthreads);
 
   tsp_adaptive(cilk_task(graph, branch, left));
 
@@ -707,7 +765,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 
 struct qtask
 {
-  typedef tsp_task::branch_ptr branch_ptr;
+  typedef default_tsp_task::branch_ptr branch_ptr;
 
   int**      graph;
   branch_ptr branch;
@@ -767,7 +825,7 @@ aligned_t tsp_adaptive(void* qtsk)
       return aligned_t();
     }
 
-    tsp_task::branch_ptr branch(pbranch);
+    default_tsp_task::branch_ptr branch(pbranch);
 
     // Parallel Version
     qt_sinc_expect(task.sinc, 1);
@@ -781,11 +839,11 @@ aligned_t tsp_adaptive(void* qtsk)
 }
 
 
-void tsp_launch(int** graph, BranchSet* branch, bool left)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t /*numthreads*/)
 {
   min_path.store(std::numeric_limits<result_t>::max());
 
-  tsp_task::branch_ptr br(branch);
+  default_tsp_task::branch_ptr br(branch);
   qt_sinc_t*           sinc = qt_sinc_create(0, nullptr, nullptr, 0);
 
   tsp_adaptive(new qtask(graph, br, left, sinc));
@@ -795,11 +853,15 @@ void tsp_launch(int** graph, BranchSet* branch, bool left)
 #endif /* QTHREADS_VERSION */
 
 
-int main()
+int main(int argc, char** args)
 {
+  size_t num_threads = NUMTHREADS;
+
+  if (argc > 1) num_threads = aux::as<size_t>(*(args+1));
+
 #if QTHREADS_VERSION
-  init_qthreads(NUMTHREADS);
-#endif /* QTHREADS_VERSION */
+  init_qthreads(num_threads);
+#endif
 
   //input graph
   int graph[MAX_NODES][MAX_NODES] =
@@ -838,7 +900,7 @@ int main()
   typedef std::chrono::time_point<std::chrono::system_clock> time_point;
   time_point     starttime = std::chrono::system_clock::now();
 
-  tsp_launch(graph_ptr, branch, true);
+  tsp_launch(graph_ptr, branch, true, num_threads);
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
