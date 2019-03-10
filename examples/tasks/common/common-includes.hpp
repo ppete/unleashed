@@ -6,8 +6,6 @@
 
 #if OMP_VERSION
 #include <omp.h>
-
-#include "omp-continue.hpp"
 #endif /* OMP_VERSION */
 
 #if WOMP_VERSION
@@ -56,11 +54,6 @@
   //~ typedef ucl::intel_arch<2, 24, 2> arch_model; // intel dual socket
   #include "ucl/task.hpp"
   #include "ucl/task-pool-x.hpp"
-  #include "ucl/task-continue.hpp"
-
-  #if HTM_ENABLED
-  #include "ucl/htm-task-pool.hpp"
-  #endif /* HTM_ENABLED */
 #endif /* UCL_VERSION */
 
 #ifndef NUMTHREADS

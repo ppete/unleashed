@@ -11,11 +11,11 @@
   #define GC_DEBUG 1
   #include <gc/gc.h>
 
-  #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
+  #include "ucl/gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITH_GC */
 
-#include "locks.hpp"
-#include "queue.hpp"
+#include "ucl/locks.hpp"
+#include "ucl/queue.hpp"
 
 namespace lf = lockfree;
 namespace fg = locking;

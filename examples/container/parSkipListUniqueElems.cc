@@ -6,20 +6,20 @@
 #include <list>
 #include <iomanip>
 
-#include "generalutil.hpp"
+#include "ucl/generalutil.hpp"
 
 #ifndef WITHOUT_GC
   #define GC_THREADS 1
   // #define GC_DEBUG 1
   #include <gc/gc.h>
 
-  #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
+  #include "ucl/gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITHOUT_GC */
 
 #ifdef HTM_ENABLED
-#include "htm-skiplist.hpp"
+#include "ucl/htm-skiplist.hpp"
 #else
-#include "skiplist.hpp"
+#include "ucl/skiplist.hpp"
 #endif
 
 #ifndef PNOITER

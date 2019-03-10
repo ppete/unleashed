@@ -10,9 +10,9 @@ SOURCE:=parSkipListUniqueElems.cc
 TARGET:=skiplist.bin
 INCLUDE:=$(UCL_HOME)/include
 LIBS:=
+FLAGS:=$(THREADFLAG)
 DEFINES:=-D$(TEST_ALLOC)=1
 
-CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 ifeq ($(TEST_ALLOC),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -25,14 +25,22 @@ else
   DEFINES+= -DWITHOUT_GC=1
 endif
 
+ifneq ($(TEST_HTM),)
+  DEFINES+= -DHTM_ENABLED=1
+  FLAGS+= $(HTMFLAG)
+endif
+
+DEFINES+= -D$(TEST_ALLOC)=1 -D$(TEST_CONTAINER)=1
+
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 # LIBS+=-latomic # needed on some architectures
 
 .PHONY: test clean
 
 test: $(OUTPUTDIR)/$(TARGET)
 
-$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/pmemory.hpp $(INCLUDE)/skiplist.hpp $(INCLUDE)/atomicutil.hpp Makefile.skiplist
-	$(CXX) $(CXXOPT) $(CXXFLAGS) $(TXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
+$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/pmemory.hpp $(INCLUDE)/ucl/skiplist.hpp $(INCLUDE)/ucl/atomicutil.hpp Makefile.skiplist
+	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
 clean:
 	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)

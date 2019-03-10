@@ -48,14 +48,6 @@ test_simple_make()
 
 test_htm_make()
 {
-  if [[ $host == "iprogress-phi" ]] && [[ $CXX == "icpc" ]]; then
-    return
-  fi
-
-  if [[ $host == "blueblaze" ]] && [[ $CXX == "xlc++" ]]; then
-    return
-  fi
-
   selector=$1
   allocator=$2
   expected=$3
@@ -122,16 +114,16 @@ test_queues()
 
 ###
 # COMPILERS
-COMPILERS="$COMPILERS g++ g++-5 g++-6 g++-7 g++-8"
-COMPILERS="$COMPILERS clang++ clang++-3.4 clang++-3.5 clang++-3.6 clang++-3.7 clang++-4.0 clang++-5.0 clang++-6.0"
+COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
+COMPILERS="$COMPILERS clang++-4.0 clang++-6.0"
 COMPILERS="$COMPILERS icpc xlc++ sunCC"
 
 ###
 # DATA STRUCTURE TESTS
 
-TESTS="test_queues"
+#~ TESTS="test_queues"
 
-#~ TESTS="test_skiplists test_stacks test_queues"
+TESTS="test_skiplists test_stacks test_queues"
 
 for arg in $COMPILERS
 do

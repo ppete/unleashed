@@ -547,7 +547,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 
 #if OMP_VERSION
 
-typedef tsp_task<omp_shared_ptr<BranchSet> > omp_task;
+typedef tsp_task<std::shared_ptr<BranchSet> > omp_task;
 
 auto tsp_adaptive(omp_task task) -> void // std::pair<D, size_t>
 {

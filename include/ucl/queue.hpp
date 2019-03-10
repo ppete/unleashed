@@ -120,6 +120,11 @@ namespace lockfree
                                     );
       }
 
+      void enq(const value_type& e)
+      {
+        enq(value_type(e));
+      }
+
       /// \brief dequeues an element
       /// \return a pair<_Tp, bool> where the flag indicates whether the dequeue
       ///         was successful. If unsuccessful, first is default initialized.
@@ -211,6 +216,11 @@ namespace locking
           tail->next = entry;
           tail = entry;
         }
+      }
+
+      void enq(const value_type& e)
+      {
+        enq(value_type(e));
       }
 
       std::pair<value_type, bool> deq()
