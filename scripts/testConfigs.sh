@@ -18,7 +18,6 @@ test_make()
   fi
 
   if [[ "$expected" -eq 0 ]]; then
-    echo run
     mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX.bin"
   fi
 }
@@ -41,7 +40,7 @@ test_simple_make()
 
   if [[ "$expected" -eq 0 ]]; then
     echo run
-    mv "$outdir"/"$selector""Tester.bin" "$outdir"/"$selector""Tester-""$testname""-$CXX.bin"
+    mv "$outdir"/"test""${selector^}"".bin" "$outdir"/"$selector""Tester-""$testname""-$CXX.bin"
   fi
 }
 
@@ -63,7 +62,6 @@ test_htm_make()
   fi
 
   if [[ "$expected" -eq 0 ]]; then
-    echo run
     mv "$outdir"/"$selector".bin "$outdir"/"$selector""-HTM-$2-""$CXX"".bin"
   fi
 }
@@ -115,13 +113,11 @@ test_queues()
 ###
 # COMPILERS
 COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
-COMPILERS="$COMPILERS clang++-4.0 clang++-6.0"
+COMPILERS="$COMPILERS clang++-4.0 clang++-6.0 clang++-7"
 COMPILERS="$COMPILERS icpc xlc++ sunCC"
 
 ###
 # DATA STRUCTURE TESTS
-
-#~ TESTS="test_queues"
 
 TESTS="test_skiplists test_stacks test_queues"
 
