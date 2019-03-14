@@ -474,8 +474,7 @@ namespace ucl
         nodealloc.initialize_if_needed();
 
         tail = nodealloc.allocate(1);
-        new (tail.val) dataQ<T>();
-
+        new (tail) dataQ<T>();
         head.val.store(tail);
       }
 
