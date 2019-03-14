@@ -40,18 +40,15 @@
 
 #include <atomic>
 #include <random>
+#include <thread>
+#include <limits>
 
-#if !defined(_WIN32)
-#include <time.h>
-#endif /* !defined(_WIN32) */
-
-#include "atomicutil.hpp"
+#include "ucl/atomicutil.hpp"
 
 #if HTM_ENABLED
-#include "htm.hpp"
+#include "ucl/htm.hpp"
 #endif /* HTM_ENABLED */
 
-/*
 #if defined(__x86_64__)
 #include "xmmintrin.h"
 
@@ -66,7 +63,7 @@ static inline
 void pausenow() {}
 
 #endif
-*/
+
 
 #ifndef ENABLE_UNSAFE_LOCK_IMPLS
 /// unsafe locks can be enabled for experimental purposes, but they
@@ -121,7 +118,7 @@ namespace ucl
     private:
       control_type mem;
 
-      // unwanted functions
+      // disabled functions
       tas_lock(const tas_lock&) = delete;
       tas_lock(tas_lock&&) = delete;
       tas_lock& operator=(const tas_lock&) = delete;
@@ -174,7 +171,7 @@ namespace ucl
     private:
       control_type mem;
 
-      // unwanted functions
+      // disabled functions
       ttas_lock(const ttas_lock&) = delete;
       ttas_lock(ttas_lock&&) = delete;
       ttas_lock& operator=(const ttas_lock&) = delete;
@@ -243,40 +240,43 @@ namespace ucl
   };
 #endif
 
-#if !defined(_WIN32)
-  /// \private
-  thread_local std::minstd_rand ttas_lock_backoff_rand(77);
-
   /// \brief ttas-lock that backs off under contention using increasing intervals
   /// \details does not implement try_lock
+  template <size_t MAX_SLEEP_TIME = (1 << 8)>
   struct ttas_lock_backoff
   {
+    typedef int_fast8_t token_type;
+    
+    enum { MIN_SLEEP = 10, MAX_SLEEP = MAX_SLEEP_TIME };
+
     ttas_lock_backoff()
     : mem(0)
     {}
 
     void lock()
     {
-      size_t max_sleep_time = MIN_SLEEP;
+      long       sleep_time = MIN_SLEEP; 
+      token_type oldval = 0;
 
-      for (;;)
+      while (!mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed))
       {
-        while (mem.load(std::memory_order_relaxed)) {}
+        sleep_time = sleep_time << 1;
+        if (sleep_time > MAX_SLEEP) sleep_time = MAX_SLEEP;
 
-        int oldval = 0;
+        std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_time));
 
-        if (mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed)) return;
-
-        long sleep_time = ttas_lock_backoff_rand() % max_sleep_time;
-
-        max_sleep_time = max_sleep_time << 1;
-        if (max_sleep_time > MAX_SLEEP) max_sleep_time = MAX_SLEEP;
-
-        timespec sleeptime = { 0, sleep_time };
-        timespec resttime;
-
-        nanosleep(&sleeptime , &resttime);
+        while (mem.load(std::memory_order_relaxed)) {}        
+        oldval = 0;
       }
+    }
+
+    bool try_lock()
+    {
+      if (mem.load(std::memory_order_relaxed)) return false;
+
+      token_type oldval = 0;
+
+      return mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed);
     }
 
     void unlock()
@@ -290,48 +290,49 @@ namespace ucl
     }
 
     private:
-      std::atomic<int>                     mem;
+      std::atomic<token_type>              mem;
 
-      static const size_t MIN_SLEEP = 1;
-      static const size_t MAX_SLEEP = 100 << 10; // ~100 milliseconds
+      // static thread_local std::minstd_rand ttas_lock_backoff_rand;
 
-      // unwanted functions
+      // disabled functions
       ttas_lock_backoff(const ttas_lock_backoff&) = delete;
       ttas_lock_backoff(ttas_lock_backoff&&) = delete;
       ttas_lock_backoff& operator=(const ttas_lock_backoff&) = delete;
+      ttas_lock_backoff& operator=(ttas_lock_backoff&&) = delete;
   };
-#endif
 
-#if ENABLE_UNSAFE_LOCK_IMPLS
-  //
-  // these locks are unsafe, because they hold thread private data, which
-  // makes the locks unusable for nested locking
+  // template <size_t MAX_SLEEP_TIME>
+  // thread_local std::minstd_rand
+  // ttas_lock_backoff<MAX_SLEEP_TIME>::ttas_lock_backoff_rand(77);
 
-  /// \private
-  thread_local size_t                  anderson_ticket;
+  typedef ttas_lock_backoff<> ttas_lock_backoff_default;
+
 
   /// \private
-  /// \brief    anderson lock, for demonstration only
-  /// \warning  NOT SAFE for nested locks
-  /// \details  uses a thread_local variable to store array index,
-  ///           thus a thread can only HOLD AT MOST ONE anderson_lock!!!!.
-  template <size_t ALIGNSZ>
+  /// \brief    anderson ticket lock
+  template <size_t ALIGNSZ=CACHELINESZ, size_t MAX_TICKETS=128>
   struct anderson_lock
   {
-    static const size_t MAX_THREAD_COUNT=128;
+    typedef uint_fast16_t ticket_type;
+    typedef uint64_t      counter_type;
+    
+    enum { MAX_TICKET_COUNT = MAX_TICKETS };
 
     anderson_lock()
-    : waitctr(0)
+    : waitctr(0), anderson_ticket(0)
     {
-      for (size_t i = 0; i < MAX_THREAD_COUNT; ++i)
+      static_assert( std::numeric_limits<ticket_type>::max() > MAX_TICKET_COUNT, 
+                     "size of ticket array is too large"
+                   );
+      
+      for (size_t i = 0; i < MAX_TICKET_COUNT; ++i)
         waitlist[i].val.store(0, std::memory_order_relaxed);
     }
 
     void lock()
     {
-      size_t no = waitctr.fetch_add(1, std::memory_order_relaxed);
-
-      waitlist_entry& myticket = waitlist[no % MAX_THREAD_COUNT].val;
+      const counter_type no = waitctr.val.fetch_add(1, std::memory_order_relaxed);
+      waitlist_entry&    myticket = waitlist[no % MAX_TICKET_COUNT].val;
 
       while (myticket.load(std::memory_order_acquire) != no) {}
 
@@ -340,31 +341,39 @@ namespace ucl
 
     void unlock()
     {
-      const size_t    nextnum = (anderson_ticket+1);
-      waitlist_entry& other = waitlist[nextnum%MAX_THREAD_COUNT].val;
+      const counter_type nextnum = (anderson_ticket+1);
+      waitlist_entry&    other = waitlist[nextnum%MAX_TICKET_COUNT].val;
 
       other.store(nextnum, std::memory_order_release);
     }
 
     bool is_free() const
     {
-      size_t          no = waitctr.load(std::memory_order_relaxed);
-      waitlist_entry& myticket = waitlist[no % MAX_THREAD_COUNT].val;
+      const counter_type no = waitctr.val.load(std::memory_order_relaxed);
+      waitlist_entry&    myticket = waitlist[no % MAX_TICKET_COUNT].val;
 
       return myticket.load(std::memory_order_relaxed) == no;
     }
 
     private:
-      typedef std::atomic<int>                      waitlist_entry;
+      typedef std::atomic<counter_type>             waitlist_entry;
       typedef aligned_type<waitlist_entry, ALIGNSZ> aligned_entry;
 
-      std::atomic<size_t>                  waitctr;
-      aligned_entry                        waitlist[MAX_THREAD_COUNT];
-      // unwanted functions
+      aligned_atomic_type<counter_type>    waitctr;
+      aligned_entry                        waitlist[MAX_TICKET_COUNT];
+      ticket_type                          anderson_ticket;      
+
+      // disabled functions
       anderson_lock(const anderson_lock&) = delete;
       anderson_lock(anderson_lock&&) = delete;
       anderson_lock& operator=(const anderson_lock&) = delete;
+      anderson_lock& operator=(anderson_lock&&) = delete;
   };
+
+#if ENABLE_UNSAFE_LOCK_IMPLS
+  //
+  // these locks are unsafe, because they hold thread private data, which
+  // makes the locks unusable for nested locking
 
   /// \private
   struct clh_lock_node
@@ -426,10 +435,12 @@ namespace ucl
 
     private:
       std::atomic<clh_lock_node*> next;
-      // unwanted functions
+      
+      // disabled functions
       clh_lock(const clh_lock&) = delete;
       clh_lock(clh_lock&&) = delete;
       clh_lock& operator=(const clh_lock&) = delete;
+      clh_lock& operator=(clh_lock&&) = delete;
   };
 
   /// \private
@@ -502,10 +513,12 @@ namespace ucl
 
     private:
       std::atomic<mcs_lock_node*> next;
-      // unwanted functions
+      
+      // disabled functions
       mcs_lock(const mcs_lock&) = delete;
       mcs_lock(mcs_lock&&) = delete;
       mcs_lock& operator=(const mcs_lock&) = delete;
+      mcs_lock& operator=(mcs_lock&&) = delete;
   };
 #endif
 
@@ -513,6 +526,8 @@ namespace ucl
   /// \details does not implement try_lock
   struct counting_lock
   {
+    typedef uint64_t counter_type;
+    
     counting_lock()
     : ctr(0), ticket(0)
     {}
@@ -520,32 +535,34 @@ namespace ucl
     void lock()
     {
       // hold while other threads are waiting
-      while (ticket.load(std::memory_order_relaxed) > ctr.load(std::memory_order_relaxed) + 1) {}
+      while (ticket.val.load(std::memory_order_relaxed) > ctr.val.load(std::memory_order_relaxed) + 1) {}
 
-      size_t t = ticket.fetch_add(1, std::memory_order_relaxed);
+      counter_type t = ticket.val.fetch_add(1, std::memory_order_relaxed);
 
-      while (t != ctr.load(std::memory_order_acquire)) {}
+      while (t != ctr.val.load(std::memory_order_acquire)) {}
     }
 
     void unlock()
     {
-      size_t t = ctr.load(std::memory_order_relaxed);
+      counter_type t = ctr.val.load(std::memory_order_relaxed);
 
-      ctr.store(t+1, std::memory_order_release);
+      ctr.val.store(t+1, std::memory_order_release);
     }
 
     bool is_free() const
     {
-      return ticket.load(std::memory_order_relaxed) == ctr.load(std::memory_order_relaxed);
+      return ticket.val.load(std::memory_order_relaxed) == ctr.val.load(std::memory_order_relaxed);
     }
 
     private:
-      std::atomic<size_t> ctr;
-      std::atomic<size_t> ticket;
-      // unwanted functions
+      aligned_atomic_type<counter_type> ctr;
+      aligned_atomic_type<counter_type> ticket;
+      
+      // disabled functions
       counting_lock(const counting_lock&) = delete;
       counting_lock(counting_lock&&) = delete;
       counting_lock& operator=(const counting_lock&) = delete;
+      counting_lock& operator=(counting_lock&&) = delete;
   };
 
   //
@@ -712,6 +729,16 @@ namespace ucl
       }
   };
 
+  template <class Elidable>
+  struct lock_elision_guard : elidable_guard<Elidable>
+  {
+    enum { RETRIES = 5 };
+    
+    explicit
+    lock_elision_guard(Elidable& e)
+    : elidable_guard<Elidable>(RETRIES, e)
+    {}
+  };
 
   /// creates an elidable lock guard. A guard that attempts to execute a
   ///   a critical section using transactional memory. If the execution does

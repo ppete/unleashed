@@ -17,8 +17,9 @@ TEST_NAME ?= TEST_EPOCH_MANAGER
 
 SOURCE := testQueue.cc
 TARGET := $(SOURCE:.cc=.bin)
-EXTRAFLAGS := -D$(TEST_NAME)=1
+DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
+FLAGS := $(THREADFLAG)
 LIBS :=
 
 CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
@@ -30,8 +31,16 @@ ifeq ($(TEST_NAME),TEST_GC_MANAGER)
   endif
 
   LIBS+= -lgc # disable when compiling w/o garbage collector=
-  EXTRAFLAGS+= -DWITH_GC=1
+  DEFINES+= -DWITH_GC=1
 endif
+
+ifneq ($(TEST_HTM),)
+  DEFINES+= -DHTM_ENABLED=1
+  FLAGS+= $(HTMFLAG)
+endif
+
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
+
 
 # LIBS+=-latomic # needed on some architectures
 
@@ -40,7 +49,7 @@ endif
 test: $(OUTPUTDIR)/$(TARGET)
 
 $(OUTPUTDIR)/$(TARGET): $(SOURCE) $(UCL_HOME)/include/ucl/queue.hpp Makefile.queue
-	$(CXX) $(CXXFLAGS) $(EXTRAFLAGS) -I$(INCLUDE) $< $(LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
 clean:
 	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)

@@ -119,6 +119,8 @@ COMPILERS="$COMPILERS icpc xlc++ sunCC"
 ###
 # DATA STRUCTURE TESTS
 
+#~ TESTS="test_queues"
+
 TESTS="test_skiplists test_stacks test_queues"
 
 for arg in $COMPILERS

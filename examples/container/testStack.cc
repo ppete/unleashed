@@ -17,7 +17,6 @@
 #include "ucl/locks.hpp"
 #include "ucl/stack.hpp"
 
-
 namespace lf = lockfree;
 namespace fg = locking;
 

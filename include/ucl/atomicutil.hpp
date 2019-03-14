@@ -38,7 +38,7 @@ namespace ucl
     {}
 
     aligned_type()
-    : val(T())
+    : val()
     {}
   };
 

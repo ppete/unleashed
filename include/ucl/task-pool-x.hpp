@@ -272,6 +272,7 @@ namespace ucl
         nodealloc.initialize_if_needed();
 
         tail = nodealloc.allocate(1);
+        new (tail.val)doubleQ<T>();
         head.val.store(tail);
       }
 
@@ -462,7 +463,13 @@ namespace ucl
   using default_pool = fifo_queue_pool<T>;
 
   //~ template <class T>
-  //~ using default_pool = single_q_pool<locking::queue<T, ucl::ttas_lock_backoff> >;
+  //~ using default_pool = single_q_pool<locking::queue<T, ucl::ttas_lock_backoff_default> >;
+  
+  //~ template <class T>
+  //~ using default_pool = single_q_pool<locking::queue<T> >;
+    
+  //~ template <class T>
+  //~ using default_pool = single_q_pool<locking::queue<T, ucl::ttas_lock, ucl::lock_elision_guard> >;  
 
   //~ template <class T>
   //~ using default_pool

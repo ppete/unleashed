@@ -48,7 +48,7 @@ endif
 ## auto set toolset and flags
 ifeq ($(TOOLSET),)
   ifeq ($(COMPILERVERSION),)
-    SUCCESS:=$(shell $(CXX) -V -c >/dev/null; echo $$?)
+    SUCCESS:=$(shell $(CXX) -V -c >/dev/null 2>&1; echo $$?)
 
     ifeq ($(SUCCESS),0)
       COMPILERVERSION:=$(shell $(CXX) -V 2>&1)
@@ -56,7 +56,7 @@ ifeq ($(TOOLSET),)
   endif
 
   ifeq ($(COMPILERVERSION),)
-    SUCCESS:=$(shell $(CXX) --version -c >/dev/null; echo $$?)
+    SUCCESS:=$(shell $(CXX) --version -c >/dev/null 2>&1; echo $$?)
 
     ifeq ($(SUCCESS),0)
       COMPILERVERSION:=$(shell $(CXX) --version)
@@ -69,17 +69,17 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Free Software Foundation,$(COMPILERVERSION)))
     export TOOLSET    := GCC
     export OPTFLAG    ?= -O2
-    export OMPFLAG    ?= -fopenmp
-    export CILKFLAG   ?= -fcilkplus -lcilkrts
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
+    export CILKFLAG   ?= -fcilkplus -lcilkrts
+    export OMPFLAG    ?= -fopenmp
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH ?= -mcpu=native
+      export CPUARCH  ?= -mcpu=native
     else
       export HTMFLAG  ?= -mrtm
-      export CPUARCH ?= -march=native
+      export CPUARCH  ?= -march=native
     endif
   endif
 endif
@@ -88,16 +88,16 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring clang,$(COMPILERVERSION)))
     export TOOLSET    := CLANG
     export OPTFLAG    ?= -O2
-    export OMPFLAG    ?= -fopenmp
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
+    export OMPFLAG    ?= -fopenmp
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH ?= -mcpu=native
+      export CPUARCH  ?= -mcpu=native
     else
       export HTMFLAG  ?= -mrtm
-      export CPUARCH ?= -march=native
+      export CPUARCH  ?= -march=native
     endif
   endif
 endif
@@ -106,11 +106,12 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Intel,$(COMPILERVERSION)))
     export TOOLSET    := ICC
     export OPTFLAG    ?= -O2
-    export OMPFLAG    ?= -fopenmp
-    export CILKFLAG   ?= -lcilkrts
+    export CPUARCH    ?= -march=native
     export THREADFLAG ?= -pthread
+    export WARNFLAG   ?= -Wall -Wextra -pedantic
     export HTMFLAG    ?= -mrtm
-#    export CPUARCH   ?= -march=native
+    export CILKFLAG   ?= -lcilkrts
+    export OMPFLAG    ?= -fopenmp
   endif
 endif
 
@@ -118,9 +119,9 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring IBM,$(COMPILERVERSION)))
     export TOOLSET    := XLC
     export OPTFLAG    ?= -O3
-    export OMPFLAG    ?= -fopenmp
     export CPUARCH    ?= -qarch=auto
     export THREADFLAG ?= -pthread
+    export OMPFLAG    ?= -fopenmp
   endif
 endif
 
@@ -128,9 +129,10 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Sun,$(COMPILERVERSION)))
     export TOOLSET    := SUN
     export OPTFLAG    ?= -fast
-    export OMPFLAG    ?= -xopenmp=parallel
     export CPUARCH    ?= -native
     export THREADFLAG ?= -mt
+    export WARNFLAG   ?= -Wall -Wextra -pedantic
+    export OMPFLAG    ?= -xopenmp=parallel
   endif
 endif
 
@@ -138,8 +140,8 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring PGI,$(COMPILERVERSION)))
     export TOOLSET    := PGI
     export OPTFLAG    ?= -O2
-    export OMPFLAG    ?= -mp
     export CPUARCH    ?= -ta=multicore
+    export OMPFLAG    ?= -mp
     $(error PGI is currently not supported)
   endif
 endif
@@ -149,28 +151,28 @@ $(info *** UCL_HOME set to default: $(UCL_HOME))
 $(info *** toolset: $(TOOLSET))
 $(info *** target system: $(TARGETARCH))
 
-ifeq ($(WARNFLAG),)
+#~ ifeq ($(WARNFLAG),)
 
-export WARNFLAG=
+#~ export WARNFLAG=
 
-SUCCESS=$(shell $(CXX) -std=c++11 -O0 -Wall $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
+#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 -Wall $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
 
-ifeq ($(SUCCESS),0)
-  WARNFLAG+= -Wall
-  $(info *** adding flag -Wall)
-endif
+#~ ifeq ($(SUCCESS),0)
+#~   WARNFLAG+= -Wall
+#~   $(info *** adding flag -Wall)
+#~ endif
 
-SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -Wextra $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
+#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -Wextra $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
 
-ifeq ($(SUCCESS),0)
-  WARNFLAG+= -Wextra
-  $(info *** adding flag -Wextra)
-endif
+#~ ifeq ($(SUCCESS),0)
+#~   WARNFLAG+= -Wextra
+#~   $(info *** adding flag -Wextra)
+#~ endif
 
-SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -pedantic $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
+#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -pedantic $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
 
-ifeq ($(SUCCESS),0)
-  WARNFLAG+= -pedantic
-  $(info *** adding flag -pedantic)
-endif
-endif
+#~ ifeq ($(SUCCESS),0)
+#~   WARNFLAG+= -pedantic
+#~   $(info *** adding flag -pedantic)
+#~ endif
+#~ endif

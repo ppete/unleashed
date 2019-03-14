@@ -174,6 +174,7 @@ namespace locking
   template <class T>
   struct queue_elem
   {
+      explicit
       queue_elem(T&& e)
       : elem(std::move(e)), next(nullptr)
       {}
@@ -186,8 +187,8 @@ namespace locking
   /// \tparam _T the stack's value type
   /// \tparam _M the used mutex class,
   /// \tparam _G the guard used, common options include std::lock_guard,
-  ///            ucl::lockable_guard, ucl::elidable_guard. The chosen guard
-  ///            needs to be compatible with the mutex interface.
+  ///            and ucl::lock_elision_guard. The chosen mutex
+  ///            needs to implement the concept required by the guard.
   /// \details the stack uses new and delete to allocate its nodes.
   /// \todo    replace new/delete with allocators
   template <class _T, class _M = std::mutex, template <class> class _G = std::lock_guard>
@@ -199,7 +200,7 @@ namespace locking
       typedef std::allocator<queue_elem<value_type> > allocator_type;
 
       queue()
-      : m(), head(new queue_elem<value_type>(value_type())), tail(head)
+      : m(), head(new queue_elem<value_type>(value_type())), tail(head.val)
       {}
 
       queue(allocator_type)
@@ -211,10 +212,10 @@ namespace locking
         queue_elem<value_type>* const entry = new queue_elem<value_type>(std::move(e));
 
         {
-          lock_guard     guard(m);
+          lock_guard guard(m.val);
 
-          tail->next = entry;
-          tail = entry;
+          tail.val->next = entry;
+          tail.val = entry;
         }
       }
 
@@ -225,23 +226,29 @@ namespace locking
 
       std::pair<value_type, bool> deq()
       {
-        lock_guard  guard(m);
+        std::unique_ptr<queue_elem<value_type> > curr;              
 
-        if (head == tail) return std::make_pair(value_type(), false);
+        { 
+          lock_guard guard(m.val);
 
-        std::unique_ptr<queue_elem<value_type> > ptrdel( head );
+          queue_elem<value_type>* cand = head.val->next;
 
-        head = head->next;
-        return std::make_pair(std::move(head->elem), true);
+          if (cand == nullptr) return std::make_pair(value_type(), false);
+          
+          curr.reset(head.val);          
+          head.val = cand;
+          
+          return std::make_pair(std::move(cand->elem), true);
+        }
       }
 
       /// for compatibility
       void qrelease_memory() {}
 
     private:
-      mutex                   m;
-      queue_elem<value_type>* head;
-      queue_elem<value_type>* tail;
+      ucl::aligned_type<mutex>                   m;
+      ucl::aligned_type<queue_elem<value_type>*> head;
+      ucl::aligned_type<queue_elem<value_type>*> tail;
   };
 }
 
