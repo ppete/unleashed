@@ -3,7 +3,7 @@
 * ./include:     contains the UCL library files.
 * ./scripts:     contains shell scripts that compile test UCL code on various systems
 * ./examples:    contains test and benchmark codes for the UCL framework
-    * ./android:   sample AndroidStudio project that uses UCL. Note AndroidStudio 1.3 and gradle-2.5 are required for testing the simple application.
+    * ./android:   sample AndroidStudio project that uses UCL. Note AndroidStudio 1.3 and gradle-2.5 are required for testing the sample application.
     * ./tasks:     test applications using the UCL-task framework
     * ./container: tests for several containers (skiplist, list, queue, stack) and memory management approaches (for both HTM and non-HTM systems), including garbage collection, publish and scan techniques, epochs, ..
     * ./locks:     sample codes using UCL's lock and transactional elision implementations
