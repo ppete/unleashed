@@ -55,7 +55,6 @@ ifeq ($(SEQ_ENABLED),1)
   endif
 endif
 
-endif
 
 CXXVERSION ?= -std=c++11
 

@@ -15,8 +15,6 @@ namespace ucl
   size_t thread_mult; // == NUM_THREADS_PER_CORE if hyperthreading is not needed
   size_t thread_mask; // used to identify sibling hyperthreads
 
-  std::mutex m;
-
   struct generic_arch
   {
     static
@@ -69,13 +67,6 @@ namespace ucl
       CPU_SET(cpu+NUM_CORES, &cpuset);
 
       /* int rc = */ pthread_setaffinity_np(thr, sizeof(cpu_set_t), &cpuset);
-
-      if (0)
-      {
-        std::lock_guard<std::mutex> g(m);
-
-        std::cerr << "x" << cpu << std::endl;
-      }
     }
 
     static
