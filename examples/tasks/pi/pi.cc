@@ -604,13 +604,7 @@ task_result_type integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps)
 {
   adaptive_integral<D, F, integration_task<D> > fun(f, eps);
 
-#if !HTM_ENABLED
   return ucl::execute_tasks_x(numthreads, fun, integration_task<D>{ lo, hi-lo, eps });
-
-  //~ return ucl::execute_pool(fun, ucl::make_pool_x(numthreads, integration_task<D>{ lo, hi-lo, eps }));
-#else
-  return htm::execute_tasks(numthreads, fun, integration_task<D>{ lo, hi-lo, eps });
-#endif /* !HTM_ENABLED */
 }
 
 #endif /* UCL_VERSION */

@@ -69,6 +69,7 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Free Software Foundation,$(COMPILERVERSION)))
     export TOOLSET    := GCC
     export OPTFLAG    ?= -O2
+    export DBGOPTFLAG ?= -O0
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
     export CILKFLAG   ?= -fcilkplus -lcilkrts
@@ -76,10 +77,10 @@ ifeq ($(TOOLSET),)
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH  ?= -mcpu=native
+      export CPUARCH ?= -mcpu=native
     else
       export HTMFLAG  ?= -mrtm
-      export CPUARCH  ?= -march=native
+      export CPUARCH ?= -march=native
     endif
   endif
 endif
@@ -88,16 +89,17 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring clang,$(COMPILERVERSION)))
     export TOOLSET    := CLANG
     export OPTFLAG    ?= -O2
+    export DBGOPTFLAG ?= -O0
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
     export OMPFLAG    ?= -fopenmp
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH  ?= -mcpu=native
+      export CPUARCH ?= -mcpu=native
     else
       export HTMFLAG  ?= -mrtm
-      export CPUARCH  ?= -march=native
+      export CPUARCH ?= -march=native
     endif
   endif
 endif
@@ -106,6 +108,7 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Intel,$(COMPILERVERSION)))
     export TOOLSET    := ICC
     export OPTFLAG    ?= -O2
+    export DBGOPTFLAG ?= -O0
     export CPUARCH    ?= -march=native
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
@@ -119,6 +122,7 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring IBM,$(COMPILERVERSION)))
     export TOOLSET    := XLC
     export OPTFLAG    ?= -O3
+    export DBGOPTFLAG ?=
     export CPUARCH    ?= -qarch=auto
     export THREADFLAG ?= -pthread
     export OMPFLAG    ?= -fopenmp
@@ -129,6 +133,7 @@ ifeq ($(TOOLSET),)
   ifneq (,$(findstring Sun,$(COMPILERVERSION)))
     export TOOLSET    := SUN
     export OPTFLAG    ?= -fast
+    export DBGOPTFLAG ?=
     export CPUARCH    ?= -native
     export THREADFLAG ?= -mt
     export WARNFLAG   ?= -Wall -Wextra -pedantic
@@ -151,28 +156,9 @@ $(info *** UCL_HOME set to default: $(UCL_HOME))
 $(info *** toolset: $(TOOLSET))
 $(info *** target system: $(TARGETARCH))
 
-#~ ifeq ($(WARNFLAG),)
-
-#~ export WARNFLAG=
-
-#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 -Wall $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
-
-#~ ifeq ($(SUCCESS),0)
-#~   WARNFLAG+= -Wall
-#~   $(info *** adding flag -Wall)
-#~ endif
-
-#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -Wextra $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
-
-#~ ifeq ($(SUCCESS),0)
-#~   WARNFLAG+= -Wextra
-#~   $(info *** adding flag -Wextra)
-#~ endif
-
-#~ SUCCESS=$(shell $(CXX) -std=c++11 -O0 $(WARNFLAG) -pedantic $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null; echo $$?)
-
-#~ ifeq ($(SUCCESS),0)
-#~   WARNFLAG+= -pedantic
-#~   $(info *** adding flag -pedantic)
-#~ endif
-#~ endif
+ifeq ($(DBGFLAG),)
+  DBGFLAG:=-DNDEBUG=1
+else
+  OPTFLAG:=$(DBGOPTFLAG)
+  $(info *** debug-mode: changed OPTFLAG to $(DBGOPTFLAG))
+endif

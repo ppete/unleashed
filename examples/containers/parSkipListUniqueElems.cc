@@ -1,12 +1,10 @@
-// g++ -ggdb -O2 -std=c++11 -Wall -Wextra -pedantic -pthread -DTEST_NO_MANAGER=1 -DTEST_LOCKFREE_SKIPLIST=1 -DWITHOUT_GC=1 -I../include parSkipListUniqueElems.cc  -o tmp/parSkipListUniqueElems.bin
-
 #include <thread>
 #include <iostream>
 #include <sstream>
 #include <list>
 #include <iomanip>
 
-#include "ucl/generalutil.hpp"
+#include "ucl/unused.hpp"
 
 #ifndef WITHOUT_GC
   #define GC_THREADS 1
@@ -115,19 +113,19 @@ static const size_t LEVELS = TEST_MAX_LEVELS;
 template <class T>
 using skiplist = htm::SkipList<T, LEVELS, std::less<T>, default_alloc<T> >;
 
-#elif defined TEST_LOCKING_SKIPLIST
+#elif defined TEST_LOCK_CONTAINER
 
 template <class T>
 using skiplist = fg::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
 
-#elif defined TEST_LOCKFREE_SKIPLIST
+#elif defined TEST_LF_CONTAINER
 
 template <class T>
 using skiplist = lf::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
 
 #else
 
- #error "preprocessor define for container class is needed (TEST_LOCKING_SKIPLIST, TEST_LOCKFREE_SKIPLIST, HTM_ENABLED)"
+ #error "preprocessor define for container class is needed (TEST_LOCK_CONTAINER, TEST_LF_CONTAINER, HTM_ENABLED)"
 
 #endif
 
@@ -316,7 +314,7 @@ void container_test_prefix(ThreadInfo& ti)
       int     succ = ti.container->insert(elem);
 #endif /* HTM_ENABLED */
 
-      assert(succ >= 0), unused(succ);
+      assert(succ >= 0), ucl::unused(succ);
       ++ti.succ;
       // std::cout << "added " << elem << " " << succ << std::endl;
 
@@ -363,7 +361,7 @@ void container_test(ThreadInfo& ti)
         int    succ = ti.container->insert(elem);
 #endif /* HTM_ENABLED */
 
-        assert(succ >= 0), unused(succ);
+        assert(succ >= 0), ucl::unused(succ);
         ++ti.succ;
       }
       else

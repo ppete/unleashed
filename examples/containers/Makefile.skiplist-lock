@@ -1,16 +1,7 @@
-include ../make-util/discover-toolset.mk
-
-# Output directory
-OUTPUTDIR ?= ./tmp
-
-## TEST_NO_MANAGER TEST_EPOCH_MANAGER TEST_PUB_SCAN_MANAGER TEST_GC_MANAGER TEST_REF_COUNTER
-TEST_ALLOC?=TEST_NO_MANAGER
-#~ TEST_ALLOC?=TEST_EPOCH_MANAGER
-#~ TEST_ALLOC?=TEST_REFCOUNT_MANAGER
-#~ TEST_ALLOC?=TEST_PUB_SCAN_MANAGER
-
+include ./common.mk
 
 TEST_CONTAINER?=TEST_LOCKING_SKIPLIST
+TEST_ALLOC?=TEST_NO_MANAGER
 
 # libraries
 INCDIR=
@@ -44,12 +35,12 @@ endif
 
 # LIBS+=-latomic # needed on some architectures
 
-.PHONY: test clean
+.PHONY: test
+test: $(COMPDIR)/$(TARGET)
 
-test: $(OUTPUTDIR)/$(TARGET)
-
-$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/pmemory.hpp $(INCLUDE)/skiplist.hpp $(INCLUDE)/atomicutil.hpp Makefile.skiplist
+$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/pmemory.hpp $(INCLUDE)/ucl/skiplist.hpp $(INCLUDE)/ucl/atomicutil.hpp Makefile.skiplist-lock
 	$(CXX) $(CXXOPT) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
+.PHONY: clean
 clean:
-	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)
+	rm -f $(TARGET)

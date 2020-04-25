@@ -28,9 +28,10 @@
 
 #include <iostream>
 
-#include "atomicutil.hpp"
-#include "bitutil.hpp"
-#include "htm.hpp"
+#include "ucl/atomicutil.hpp"
+#include "ucl/unused.hpp"
+#include "ucl/bitutil.hpp"
+#include "ucl/htm.hpp"
 
 
 #ifndef UCL_GC_CXX11_THREAD_CONTEXT
@@ -303,6 +304,13 @@ namespace htm
   template <class _Tp, template <class> class _Alloc = std::allocator>
   struct just_alloc : no_pinwall_base<_Tp>, alloc_base<_Tp, _Alloc>
   {
+    struct unreal_stats
+    {
+      size_t stats;
+      size_t statsctr;
+      size_t collectctr;
+    };
+
     private:
       typedef alloc_base<_Tp, _Alloc> base;
 
@@ -337,39 +345,26 @@ namespace htm
       /// disable deallocate
       void deallocate(_Tp*, int) {}
 
-      ///
-      void beginop(size_t)
-      {
-        if (!justdata)
-        {
-          justdata = new stats_data;
+      /// disabled
+      /// @{
+      const unreal_stats*
+      statsbegin() { return nullptr; }
 
-          stats_data* curr = alljusts.load(std::memory_order_relaxed);
+      const unreal_stats*
+      statslimit() { return statsbegin(); }
+      /// @}
 
-          do
-          {
-            justdata->next = curr;
-          } while (!alljusts.compare_exchange_weak(curr, justdata, std::memory_order_release, std::memory_order_relaxed)); // \mo
-        }
-      }
+      /// disabled
+      void stats(size_t) {}
 
+      /// nothing to do
+      void beginop(size_t) {}
 
-      scan_iterator<stats_data>
-      statsbegin() { return scan_iterator<stats_data>(alljusts); }
-
-      scan_iterator<stats_data>
-      statslimit() { return scan_iterator<stats_data>(nullptr); }
-
-      void stats(size_t num)
-      {
-        justdata->stats += num;
-        ++justdata->statsctr;
-      }
-
-      static thread_local stats_data*  justdata;
-      static std::atomic<stats_data*>  alljusts;
+      /// nothing to do
+      void shutdown() {}
   };
 
+/*
   template <class _Tp, template <class> class _Alloc>
   std::atomic<stats_data*>
   just_alloc<_Tp, _Alloc>::alljusts(nullptr);
@@ -378,7 +373,7 @@ namespace htm
   thread_local
   stats_data*
   just_alloc<_Tp, _Alloc>::justdata(nullptr);
-
+*/
 
   //
   // Auxiliary classes
@@ -571,10 +566,6 @@ namespace htm
     return Deallocator<_Alloc>{alloc};
   }
 
-  template <class T>
-  static inline
-  void param_unused(const T&) {}
-
   static inline
   size_t threshold(size_t len)
   {
@@ -710,7 +701,7 @@ namespace htm
       void deallocate(value_type* obj, size_t num)
       {
         assert(pinWall);
-        assert(num == 1), param_unused(num); // currently the allocator is limited to a single object
+        assert(num == 1), ucl::unused(num); // currently the allocator is limited to a single object
 
         pinWall->rmvd.push_back(obj);
         ++pinWall->delocctr;
@@ -1013,7 +1004,7 @@ namespace htm
       ///   until no other thread holds a reference to the same object
       void deallocate(value_type* obj, size_t num)
       {
-        assert(pinw && num == 1), unused(num); // currently the allocator is limited to a single object
+        assert(pinw && num == 1), ucl::unused(num); // currently the allocator is limited to a single object
 
         rmvd.push_back(static_cast<counted_type*>(obj));
         if (rmvd.size() >= 1024) release_memory();
@@ -1878,7 +1869,7 @@ namespace htm
       void deallocate(value_type* obj, size_t num)
       {
         assert(strack);
-        assert(num == 1), unused(num); // currently the allocator is limited to a single object
+        assert(num == 1), ucl::unused(num); // currently the allocator is limited to a single object
 
         strack->rmvd.push_back(obj);
         ++strack->delocctr;

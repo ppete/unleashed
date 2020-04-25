@@ -1,10 +1,10 @@
-/// \file locks.hpp
+/// \file spinlock.hpp
 /// \brief File provides (various) spinlock implementation(s) in C++11
 ///        and methods to elide them in the presence of hardware transactional
 ///        memory (requires HTM_ENABLED be set to 1).
 /// \todo  separate some classes that need to hold data into header and
 ///        implementation file.
-/// \author Amalee Wilson, Peter Pirkelbauer 
+/// \author Amalee Wilson, Peter Pirkelbauer
 ///
 /// To seamlessly interact with systems that support transactional memory,
 /// we introduce the Elidable concept. Elidable is similar to
@@ -49,7 +49,7 @@
 #include "ucl/htm.hpp"
 #endif /* HTM_ENABLED */
 
-#if defined(__x86_64__)
+#if 0 // defined(__x86_64__)
 #include "xmmintrin.h"
 
 /// \private
@@ -65,16 +65,15 @@ void pausenow() {}
 #endif
 
 
-#ifndef ENABLE_UNSAFE_LOCK_IMPLS
-/// unsafe locks can be enabled for experimental purposes, but they
-///   fail in scenarios where locks need to be nested.
-/// \todo eliminate the use of thread_local storage
-#define ENABLE_UNSAFE_LOCK_IMPLS 0
-#endif /* ENABLE_UNSAFE_LOCK_IMPLS */
-
 
 namespace ucl
 {
+
+#if UCL_RUNTIME_DATA
+  thread_local size_t num_commits  = 0;
+#endif /* UCL_RUNTIME_DATA */
+
+
   /// \brief Overly simple test and set lock.
   /// \details demonstrates the problem of just using compare_and_exchange
   ///          when spinning. For a much better implementation see ttas_lock.
@@ -147,7 +146,7 @@ namespace ucl
       {
         for (;;)
         {
-          while (mem.load(std::memory_order_relaxed)) {}
+          while (mem.load(std::memory_order_relaxed)) { pausenow(); }
 
           if (try_lock()) return;
         }
@@ -232,6 +231,9 @@ namespace ucl
       if (the_lock.is_free())
       {
         htm::tx::end();
+#if UCL_RUNTIME_DATA
+        ++num_commits;
+#endif /* UCL_RUNTIME_DATA */
         return;
       }
 
@@ -246,7 +248,7 @@ namespace ucl
   struct ttas_lock_backoff
   {
     typedef int_fast8_t token_type;
-    
+
     enum { MIN_SLEEP = 10, MAX_SLEEP = MAX_SLEEP_TIME };
 
     ttas_lock_backoff()
@@ -255,7 +257,7 @@ namespace ucl
 
     void lock()
     {
-      long       sleep_time = MIN_SLEEP; 
+      long       sleep_time = MIN_SLEEP;
       token_type oldval = 0;
 
       while (!mem.compare_exchange_weak(oldval, 1, std::memory_order_acquire, std::memory_order_relaxed))
@@ -265,7 +267,7 @@ namespace ucl
 
         std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_time));
 
-        while (mem.load(std::memory_order_relaxed)) {}        
+        while (mem.load(std::memory_order_relaxed)) {}
         oldval = 0;
       }
     }
@@ -315,16 +317,16 @@ namespace ucl
   {
     typedef uint_fast16_t ticket_type;
     typedef uint64_t      counter_type;
-    
+
     enum { MAX_TICKET_COUNT = MAX_TICKETS };
 
     anderson_lock()
     : waitctr(0), anderson_ticket(0)
     {
-      static_assert( std::numeric_limits<ticket_type>::max() > MAX_TICKET_COUNT, 
+      static_assert( std::numeric_limits<ticket_type>::max() > MAX_TICKET_COUNT,
                      "size of ticket array is too large"
                    );
-      
+
       for (size_t i = 0; i < MAX_TICKET_COUNT; ++i)
         waitlist[i].val.store(0, std::memory_order_relaxed);
     }
@@ -350,7 +352,7 @@ namespace ucl
     bool is_free() const
     {
       const counter_type no = waitctr.val.load(std::memory_order_relaxed);
-      waitlist_entry&    myticket = waitlist[no % MAX_TICKET_COUNT].val;
+      const waitlist_entry& myticket = waitlist[no % MAX_TICKET_COUNT].val;
 
       return myticket.load(std::memory_order_relaxed) == no;
     }
@@ -361,7 +363,7 @@ namespace ucl
 
       aligned_atomic_type<counter_type>    waitctr;
       aligned_entry                        waitlist[MAX_TICKET_COUNT];
-      ticket_type                          anderson_ticket;      
+      ticket_type                          anderson_ticket;
 
       // disabled functions
       anderson_lock(const anderson_lock&) = delete;
@@ -370,10 +372,6 @@ namespace ucl
       anderson_lock& operator=(anderson_lock&&) = delete;
   };
 
-#if ENABLE_UNSAFE_LOCK_IMPLS
-  //
-  // these locks are unsafe, because they hold thread private data, which
-  // makes the locks unusable for nested locking
 
   /// \private
   struct clh_lock_node
@@ -396,7 +394,7 @@ namespace ucl
   struct clh_lock
   {
     clh_lock()
-    : next(new clh_lock_node(1))
+    : next(new clh_lock_node(1)), owner_curr(nullptr)
     {}
 
     void lock()
@@ -408,22 +406,27 @@ namespace ucl
         clh_next->flag.store(0, std::memory_order_relaxed);
 
       // swap my node with current lock node
-      clh_curr = next.exchange(clh_next, std::memory_order_acq_rel);
+      clh_lock_node* clh_curr = next.val.exchange(clh_next, std::memory_order_acq_rel);
 
       // load until green light
       while (!clh_curr->flag.load(std::memory_order_relaxed)) {}
 
       // acquire fence to sync with lock acquisition
       std::atomic_thread_fence(std::memory_order_acquire);
+
+      owner_curr = clh_curr;
     }
 
     void unlock()
     {
       // set free next thread
-      clh_next->flag.store(1, std::memory_order_release);
+      owner_curr->flag.store(1, std::memory_order_release);
 
-      // recycle clh_curr for the next lock acquisition
-      clh_next = clh_curr;
+      // keep one node for the next lock acquisition
+      // \todo could be improved for codes relying on nested locking
+      if (clh_next) delete clh_next;
+
+      clh_next = owner_curr;
     }
 
     bool is_free() const
@@ -434,8 +437,9 @@ namespace ucl
     }
 
     private:
-      std::atomic<clh_lock_node*> next;
-      
+      ucl::aligned_atomic_type<clh_lock_node*> next;
+      clh_lock_node*                           owner_curr;
+
       // disabled functions
       clh_lock(const clh_lock&) = delete;
       clh_lock(clh_lock&&) = delete;
@@ -446,88 +450,109 @@ namespace ucl
   /// \private
   struct mcs_lock_node
   {
+    typedef int_fast8_t token_type;
+
     mcs_lock_node()
     : flag(0), next(nullptr)
     {}
 
-    std::atomic<int>            flag;
+    std::atomic<token_type>     flag;
     std::atomic<mcs_lock_node*> next;
   };
 
   /// \private
-  thread_local mcs_lock_node mcs_node;
+  thread_local mcs_lock_node* mcs_freelist = nullptr;
 
   /// \private
   struct mcs_lock
   {
     mcs_lock()
-    : next(nullptr)
+    : next(nullptr), owner(nullptr)
     {}
+
+    mcs_lock_node* alloc_node()
+    {
+      if (mcs_freelist == nullptr) return new mcs_lock_node;
+
+      mcs_lock_node* mcs_node = mcs_freelist;
+
+      mcs_node->next.store(nullptr, std::memory_order_relaxed);
+      mcs_node->flag.store(0, std::memory_order_relaxed);
+      return mcs_node;
+    }
+
+    void dealloc_node(mcs_lock_node* mcs_node)
+    {
+      if (mcs_freelist != nullptr) delete mcs_freelist;
+
+      mcs_freelist = mcs_node;
+    }
 
     void lock()
     {
-      mcs_node.next.store(nullptr, std::memory_order_relaxed);
-      mcs_node.flag.store(0, std::memory_order_relaxed);
+      mcs_lock_node* mcs_node = alloc_node();
 
       // \mot preceding stores must complete before we publish the node
-      mcs_lock_node* prev = next.exchange(&mcs_node, std::memory_order_release);
+      mcs_lock_node* prev = next.val.exchange(mcs_node, std::memory_order_release);
 
       if (prev != nullptr)
       {
         // \todo needed? std::atomic_thread_fence(std::memory_order_consume);
-        prev->next.store(&mcs_node, std::memory_order_relaxed);
+        prev->next.store(mcs_node, std::memory_order_relaxed);
 
-        while (!mcs_node.flag.load(std::memory_order_relaxed)) {}
+        while (!mcs_node->flag.load(std::memory_order_relaxed)) {}
       }
 
       std::atomic_thread_fence(std::memory_order_acquire);
+      owner.val = mcs_node;
     }
 
     void unlock()
     {
       // if our flag has been set already, we do not have to attempt c&s
-      mcs_lock_node* old = mcs_node.next.load(std::memory_order_relaxed);
+      mcs_lock_node* mcs_node = owner.val;
+      mcs_lock_node* old = mcs_node->next.load(std::memory_order_relaxed);
 
       if (old == nullptr)
       {
-        old = &mcs_node;
-        next.compare_exchange_strong(old, nullptr, std::memory_order_release, std::memory_order_relaxed);
+        old = mcs_node;
+        next.val.compare_exchange_strong(old, nullptr, std::memory_order_release, std::memory_order_relaxed);
       }
 
       // if someone else is waiting...
-      if (old != &mcs_node)
+      if (old != mcs_node)
       {
         // wait until the next in line has revealed itself
-        while (mcs_node.next.load(std::memory_order_relaxed) == nullptr) {}
+        while (mcs_node->next.load(std::memory_order_relaxed) == nullptr) {}
 
-        mcs_lock_node* next = mcs_node.next.load(std::memory_order_consume);
+        mcs_lock_node* nxt = mcs_node->next.load(std::memory_order_consume);
 
-        next->flag.store(1, std::memory_order_release);
+        nxt->flag.store(1, std::memory_order_release);
       }
     }
 
     bool is_free() const
     {
-      return next.load(std::memory_order_relaxed) == nullptr;
+      return next.val.load(std::memory_order_relaxed) == nullptr;
     }
 
     private:
-      std::atomic<mcs_lock_node*> next;
-      
+      aligned_atomic_type<mcs_lock_node*> next;
+      aligned_type<mcs_lock_node*>        owner;
+
       // disabled functions
       mcs_lock(const mcs_lock&) = delete;
       mcs_lock(mcs_lock&&) = delete;
       mcs_lock& operator=(const mcs_lock&) = delete;
       mcs_lock& operator=(mcs_lock&&) = delete;
   };
-#endif
 
   /// \brief lock using two counters, one for arrival and one for entering time
   /// \details does not implement try_lock
   struct counting_lock
   {
     typedef uint64_t counter_type;
-    
+
     counting_lock()
     : ctr(0), ticket(0)
     {}
@@ -557,7 +582,7 @@ namespace ucl
     private:
       aligned_atomic_type<counter_type> ctr;
       aligned_atomic_type<counter_type> ticket;
-      
+
       // disabled functions
       counting_lock(const counting_lock&) = delete;
       counting_lock(counting_lock&&) = delete;
@@ -686,6 +711,12 @@ namespace ucl
     tuple_for_all<NUMLOCKS>::apply(lockables, release_lock());
   }
 
+  struct guard_base
+  {
+    guard_base(const guard_base&)            = delete;
+    guard_base& operator=(const guard_base&) = delete;
+  };
+
 #if HTM_ENABLED
 
   /// \private
@@ -702,10 +733,8 @@ namespace ucl
   /// \tparam  ...Elidable a sequence of elidable lock types
   /// \details this is an internal class, use the external constructor function below
   template <typename ...Elidable>
-  struct elidable_guard
+  struct elidable_guard : guard_base
   {
-      std::tuple<Elidable&...> elidables;
-
       elidable_guard(size_t num_retries, Elidable&... args)
       : elidables(args...)
       {
@@ -723,17 +752,28 @@ namespace ucl
       ~elidable_guard()
       {
         if (is_first_free(elidables))
+        {
           htm::tx::end();
-        else
-          unlock_all(elidables);
+#if UCL_RUNTIME_DATA
+          ++num_commits;
+#endif /* UCL_RUNTIME_DATA */
+          return;
+        }
+
+        unlock_all(elidables);
       }
+
+    private:
+      std::tuple<Elidable&...> elidables;
   };
 
-  template <class Elidable>
+  /// \brief a drop-in replacement for std::lock_guard that elides
+  ///        the mutex by default.
+  template <class Elidable, size_t NUM_RETRIES = 10>
   struct lock_elision_guard : elidable_guard<Elidable>
   {
-    enum { RETRIES = 5 };
-    
+    enum { RETRIES = NUM_RETRIES };
+
     explicit
     lock_elision_guard(Elidable& e)
     : elidable_guard<Elidable>(RETRIES, e)
@@ -752,14 +792,14 @@ namespace ucl
   ///
   /// \details used as follows:
   /// \code
-  ///   auto guard = ucl::elide_guard(10, m1, m2, m3);
+  ///   const auto& guard = ucl::elide_guard(10, m1, m2, m3);
   /// \endcode
   ///
   /// \warning The locks are acquired in sequence. elide_guard DOES NOT
   ///          implement any deadlock prevention.
   template <typename ...Elidables>
   elidable_guard<Elidables...>
-  elide_guard(int num_retries, Elidables&... args)
+  elide_guard(size_t num_retries, Elidables&... args)
   {
     return elidable_guard<Elidables...>(num_retries, args...);
   }
@@ -773,7 +813,7 @@ namespace ucl
   ///
   /// \details
   /// \code
-  ///   auto guard = ucl::elide_guard(m1, m2, m3);
+  ///   const auto& guard = ucl::elide_guard(m1, m2, m3);
   /// \endcode
   /// \warning The locks are acquired in sequence. elide_guard DOES NOT
   ///          implement any deadlock prevention.
@@ -790,10 +830,9 @@ namespace ucl
   /// \details to avoid naming the Lockable types, use the external
   ///          constructor below.
   template <typename ...Lockable>
-  struct lockable_guard
+  struct lockable_guard : guard_base
   {
-      std::tuple<Lockable&...> lockables;
-
+      explicit
       lockable_guard(Lockable&... args)
       : lockables(args...)
       {
@@ -804,6 +843,9 @@ namespace ucl
       {
         unlock_all(lockables);
       }
+
+    private:
+      std::tuple<Lockable&...> lockables;
   };
 
   /// creates lock-guard for multiple locks at once (similar to std::lock_guard
@@ -813,7 +855,7 @@ namespace ucl
   ///
   /// \details used as follows:
   /// \code
-  ///   auto guard = ucl::lock_guard(m1, m2, m3);
+  ///   const auto& guard = ucl::lock_guard(m1, m2, m3);
   /// \endcode
   ///
   /// \warning The locks are acquired in sequence. lock_guard DOES NOT

@@ -91,8 +91,8 @@ void set_cilk_workers(int n)
 
   sprintf(str, "%d", n);
 
-  bool success = __cilkrts_set_param("nworkers", str) != 0;
-  assert(success), aux::unused(success);
+  bool failure = __cilkrts_set_param("nworkers", str) != 0;
+  assert(!failure), aux::unused(failure);
 }
 
 static inline

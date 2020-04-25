@@ -37,11 +37,6 @@ test_simple_make()
   if [[ "$expected" -ne "$res" ]]; then
     exit $res
   fi
-
-  if [[ "$expected" -eq 0 ]]; then
-    echo run
-    mv "$outdir"/"test""${selector^}"".bin" "$outdir"/"$selector""Tester-""$testname""-$CXX.bin"
-  fi
 }
 
 
@@ -69,15 +64,15 @@ test_htm_make()
 
 test_skiplists()
 {
-  test_make skiplist TEST_LOCKFREE_SKIPLIST TEST_NO_MANAGER 0
-  test_make skiplist TEST_LOCKFREE_SKIPLIST TEST_EPOCH_MANAGER 0
-  test_make skiplist TEST_LOCKFREE_SKIPLIST TEST_PUB_SCAN_MANAGER 0
-  test_make skiplist TEST_LOCKFREE_SKIPLIST TEST_GC_MANAGER 0
+  test_make skiplist TEST_LF_CONTAINER TEST_NO_MANAGER 0
+  test_make skiplist TEST_LF_CONTAINER TEST_EPOCH_MANAGER 0
+  test_make skiplist TEST_LF_CONTAINER TEST_PUB_SCAN_MANAGER 0
+  test_make skiplist TEST_LF_CONTAINER TEST_GC_MANAGER 0
 
-  test_make skiplist TEST_LOCKING_SKIPLIST TEST_NO_MANAGER 0
-  test_make skiplist TEST_LOCKING_SKIPLIST TEST_EPOCH_MANAGER 0
-  test_make skiplist TEST_LOCKING_SKIPLIST TEST_PUB_SCAN_MANAGER 2
-  test_make skiplist TEST_LOCKING_SKIPLIST TEST_GC_MANAGER 0
+  test_make skiplist TEST_LOCK_CONTAINER TEST_NO_MANAGER 0
+  test_make skiplist TEST_LOCK_CONTAINER TEST_EPOCH_MANAGER 0
+  test_make skiplist TEST_LOCK_CONTAINER TEST_PUB_SCAN_MANAGER 2
+  test_make skiplist TEST_LOCK_CONTAINER TEST_GC_MANAGER 0
 
   test_htm_make skiplist TEST_NO_MANAGER 0
   test_htm_make skiplist TEST_EPOCH_MANAGER 0
@@ -122,6 +117,8 @@ COMPILERS="$COMPILERS icpc xlc++ sunCC"
 #~ TESTS="test_queues"
 
 TESTS="test_skiplists test_stacks test_queues"
+
+cd ../examples/containers
 
 for arg in $COMPILERS
 do

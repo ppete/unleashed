@@ -67,9 +67,17 @@
 ///   // collects and releases non-referenced memory
 ///   void release_memory();
 ///
-///   // releases all memory held, under the assumption that the data structure
-///   //   is quiescent.
+///   // releases all managed memory unchecked
+///   // \pre invoked in quiescent time
 ///   void qrelease_memory();
+///
+///   // Releases all memory associated with this memory manager.
+///   //   Any thread with access to this memory manager must guarantee
+///   //   to only use thread-local resources. Any thread invoking this
+///   //   function renders inter thread accesses unusable.
+///   // \param mainThread true, if invoked from the main thread   
+///   // \pre invoked in quiescent time
+///   void qdestruct(bool mainThread);
 ///
 ///   // does the memory manager hold unreleased memory?
 ///   // \details this should be a constant time operation
@@ -106,9 +114,9 @@
 #include <forward_list>
 #include <sstream>
 
-#include "atomicutil.hpp"
-#include "bitutil.hpp"
-#include "generalutil.hpp"
+#include "ucl/atomicutil.hpp"
+#include "ucl/bitutil.hpp"
+#include "ucl/unused.hpp"
 
 #ifndef UCL_GC_CXX11_THREAD_CONTEXT
 #define UCL_GC_CXX11_THREAD_CONTEXT
@@ -372,9 +380,11 @@ namespace lockfree
       /// collects and releases non-referenced memory
       void release_memory() {}
 
-      /// releases all memory held, under the assumption that the data structure
-      ///   is quiescent.
+      /// does not release memory
       void qrelease_memory() {}
+      
+      /// destructs nothing
+      void qdestruct(bool) {}
 
       /// does the memory manager hold unreleased memory?
       bool has_unreleased_memory() const { return false; }
@@ -416,6 +426,22 @@ namespace lockfree
 
   //
   // allocators
+  
+  /// \brief behaves like a regular allocator that does not manage memory
+  /// \details
+  ///    frees deallocated memory immediately.
+  template <class _Tp, template <class> class _Alloc = std::allocator>
+  struct common_alloc : _Alloc<_Tp>
+  {
+    typedef _Alloc<_Tp> impl;
+    
+    public:
+      // no pinwall
+      typedef guardless pinguard;
+      typedef collected manager_kind;
+      
+      using impl::impl;
+  };
 
   /// \brief simple allocator that only allocates BUT DOES NOT FREE
   template <class _Tp, template <class> class _Alloc = std::allocator>
@@ -465,7 +491,7 @@ namespace lockfree
     private:
       typedef alloc_base<_Tp, _Alloc> base;
 
-      std::vector<_Tp>   released;
+      static thread_local std::vector<_Tp> released;
 
     public:
       // no pinwall
@@ -475,22 +501,22 @@ namespace lockfree
       /// \private
       /// rebind to self
       template <class U>
-      struct rebind { typedef just_alloc<U, _Alloc> other; };
+      struct rebind { typedef arena<U, _Alloc> other; };
 
-      /// constructs a just_alloc manager
+      /// constructs an arena manager
       explicit
       arena(_Alloc<_Tp> alloc)
-      : base(alloc), released()
+      : base(alloc)
       {}
 
-      /// constructs a just_alloc manager
+      /// constructs an arena manager
       template <class _Up>
       explicit
-      arena(just_alloc<_Up, _Alloc> other)
+      arena(arena<_Up, _Alloc> other)
       : base(other)
       {}
 
-      /// constructs a just_alloc manager
+      /// constructs an arena manager
       arena()
       : base()
       {}
@@ -500,7 +526,7 @@ namespace lockfree
       {
         released.push_back(el);
       }
-
+      
       /// releases all memory held, under the assumption that the data structure
       ///   is quiescent.
       void qrelease_memory()
@@ -517,7 +543,9 @@ namespace lockfree
       size_t count_unreleased_memory() const { return released.size(); }
   };
 
-
+  template <class _Tp, template <class> class _Alloc>
+  thread_local
+  std::vector<_Tp> arena<_Tp, _Alloc>::released;
 
 #ifdef PMEMORY_GC_ENABLED
   /// \brief memory manager that defers memory reclamation to a
@@ -673,7 +701,7 @@ namespace lockfree
       /// unpins an entry slot range on the pinwall
       void unpin(_Tp const * const elem, int ofs)
       {
-        unused(elem), assert(ofs <= 0);
+        ucl::unused(elem), assert(ofs <= 0);
 
         // load one past last valid
         //   relaxed sufficient since this is the only writing thread
@@ -710,7 +738,8 @@ namespace lockfree
       void check(_Tp const * const elem)
       {
         pinwall_entry* const zz = last.load(std::memory_order_relaxed);
-        unused(elem), assert(std::find(base, zz, elem) != zz);
+
+        ucl::unused(elem), assert(std::find(base, zz, elem) != zz);
       }
 
       void unpin_all()
@@ -724,10 +753,6 @@ namespace lockfree
       }
 
       bool needs_collect() const { return collection_time <= cnt; }
-
-      void qrelease()
-      {
-      }
   };
 
   /// \private
@@ -1002,6 +1027,14 @@ namespace lockfree
         std::for_each(rmvd.begin(), rmvd.end(), deallocator(base::get_allocator()));
         rmvd.clear();
       }
+      
+      void qdestruct(bool mainThread)
+      {
+        delete pinWall;
+        pinWall = nullptr;
+        
+        if (mainThread) allPinWalls.store(nullptr, std::memory_order_relaxed);
+      }
 
       /// returns true if this thread has unreleased memory
       bool has_unreleased_memory() const
@@ -1033,7 +1066,7 @@ namespace lockfree
       void deallocate(value_type* obj, size_t num)
       {
         assert(pinWall);
-        unused(num), assert(num == 1); // currently the allocator is limited to a single object
+        ucl::unused(num), assert(num == 1); // currently the allocator is limited to a single object
 
         pinWall->rmvd.push_back(obj);
         ++pinWall->cnt;
@@ -1164,7 +1197,6 @@ namespace lockfree
   template <class _Tp, class _Alloc>
   struct epoch_data
   {
-    static const size_t INITIAL_RECLAIMATION_PERIOD = 20;
     typedef std::forward_list<release_entry<_Tp, _Alloc> > removal_collection;
 
     epoch_data<_Tp, _Alloc> const * next;  ///< next thread's data
@@ -1179,9 +1211,11 @@ namespace lockfree
 
     bool needs_collection()
     {
+      assert(!rmvc.empty());
+
       typename removal_collection::value_type& entry = rmvc.front();
 
-      return entry.epochtime.size() + 8 < entry.epochptrs.size();
+      return entry.epochtime.size() + 1 < entry.epochptrs.size();
     }
 
     epoch_data()
@@ -1403,6 +1437,7 @@ namespace lockfree
         epochdata->rmvc.front().swap(epochdesc);
       }
 
+      /// \private
       void free_unreferenced_memory()
       {
         typedef epoch_data<value_type, _Alloc<_Tp> >          epoch_data_t;
@@ -1458,6 +1493,18 @@ namespace lockfree
         epochdata->rmvc.emplace_front( current_clock_size );
       }
 
+      /// \brief  compares epochs of releasable elements with current epochs of threads.
+      ///         Frees all memory that can no longer be referenced by other threads.
+      void release_memory_if_needed()
+      {
+        if (epochdata->needs_collection())
+        {
+          release_memory();
+          // epochdata->collepoch += 8*epochdata->reclaimation_increment();
+          // std::cout << epochdata->collepoch << std::endl;
+        }
+      }
+
       /// releases all memory
       void qrelease_memory()
       {
@@ -1472,6 +1519,16 @@ namespace lockfree
 
         rmvc.clear();
         rmvc.emplace_front( 0 );
+
+        assert(!rmvc.empty());
+      }
+      
+      void qdestruct(bool mainThread)
+      {
+        delete epochdata;
+        epochdata = nullptr;
+        
+        if (mainThread) allepochData.store(nullptr, std::memory_order_relaxed); 
       }
 
       /// \brief  returns whether releasable memory blocks were held back
@@ -1516,12 +1573,8 @@ namespace lockfree
         // \mo release in order to prevent reordering with preceding operations.
         epochdata->epoch.store(epochval, std::memory_order_release);
 
-        if (epochdata->needs_collection())
-        {
-          release_memory();
-          // epochdata->collepoch += 8*epochdata->reclaimation_increment();
-          // std::cout << epochdata->collepoch << std::endl;
-        }
+        release_memory_if_needed();
+        assert(!epochdata->rmvc.empty());
       }
 
       void initialize_if_needed(size_t = 0)
@@ -1554,11 +1607,13 @@ namespace lockfree
 
         assert(active(epochval)); // entering an operation
         epochdata->epoch.store(epochval, std::memory_order_seq_cst);
+        assert(!epochdata->rmvc.empty());
       }
 
       void deallocate(value_type* entry, int)
       {
         assert(epochdata);
+        assert(!epochdata->rmvc.empty());
 
         epochdata->rmvc.front().epochptrs.push_back(entry);
       }
@@ -1596,14 +1651,14 @@ namespace lockfree
     {
       total_collects += curr->cnt_collects;
 
-      os << ":: e" << (++x)
+      os << ": e" << (++x)
          << "  [" << curr->cnt_collects << "]"
          << std::endl;
 
       curr = curr->next;
     }
 
-    os << "** etotals: " << total_collects
+    os << ":::: etotals: " << total_collects
        << std::endl;
   }
 #endif /* UCL_RUNTIME_DATA */

@@ -14,8 +14,8 @@
   #include "ucl/gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITH_GC */
 
-#include "ucl/locks.hpp"
-#include "ucl/queue.hpp"
+#include "ucl/spinlock.hpp"
+#include "ucl/stack.hpp"
 
 namespace lf = lockfree;
 namespace fg = locking;
@@ -25,28 +25,28 @@ namespace fg = locking;
 
 #if defined TEST_NO_MANAGER
 
-#define TEST_LOCKFREE_STACK 1
+#define TEST_LF_CONTAINER 1
 
 template <class T>
 using default_alloc = lf::just_alloc<T>;
 
 #elif defined TEST_GC_MANAGER
 
-#define TEST_LOCKFREE_STACK 1
+#define TEST_LF_CONTAINER 1
 
 template <class T>
 using default_alloc = lf::gc_manager<T, gc_allocator_cxx11>;
 
 #elif defined TEST_EPOCH_MANAGER
 
-#define TEST_LOCKFREE_STACK 1
+#define TEST_LF_CONTAINER 1
 
 template <class T>
 using default_alloc = lf::epoch_manager<T>;
 
 #elif defined TEST_PUB_SCAN_MANAGER
 
-#define TEST_LOCKFREE_STACK 1
+#define TEST_LF_CONTAINER 1
 
 template <class T>
 using default_alloc = lf::pub_scan_manager<T>;
@@ -58,14 +58,14 @@ using default_lock_guard = std::lock_guard<M>;
 
 typedef std::mutex           default_mutex;
 
-#elif defined TEST_UNLEASHED_LOCKGUARD
+#elif defined TEST_UCL_LOCKGUARD
 
 template <class M>
 using default_lock_guard = ucl::lockable_guard<M>;
 
 typedef ucl::ttas_lock       default_mutex;
 
-#elif defined TEST_UNLEASHED_ELIDEGUARD
+#elif defined TEST_UCL_ELIDEGUARD
 
 #ifndef HTM_ENABLED
 #error "HTM_ENABLED not set for ucl::elide_guard"
@@ -86,19 +86,19 @@ typedef ucl::ttas_lock       default_mutex;
 //
 // choose stack implementation
 
-#if defined TEST_LOCKFREE_STACK
+#if defined TEST_LF_CONTAINER
 
 template <class T>
-using queue = lf::queue<T, default_alloc<T> >;
+using stack = lf::stack<T, default_alloc<T> >;
 
 #else
 
 template <class T>
-using queue = fg::queue<T, default_mutex, default_lock_guard>;
+using stack = fg::stack<T, default_mutex, default_lock_guard>;
 
 #endif
 
-typedef queue<int> container_type;
+typedef stack<int> container_type;
 
 static inline
 void fail()
@@ -114,21 +114,21 @@ bool success(const std::pair<T, bool>& res)
 }
 
 
-void producer(container_type* qu, int count)
+void producer(container_type* stack, int count)
 {
   gc_cxx_thread_context gc_guard;
 
   for (int i = count; i > 0; --i)
-    qu->enq(i);
+    stack->push(i);
 }
 
-void consumer(container_type* qu, int count)
+void consumer(container_type* stack, int count)
 {
   gc_cxx_thread_context gc_guard;
 
   while (count)
   {
-    auto result = qu->deq();
+    auto result = stack->pop();
 
     if (result.second) --count;
   }
@@ -141,7 +141,7 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
 {
   std::cout << std::endl;
 
-  container_type          qu;
+  container_type          stack;
   std::list<std::thread>  exp_threads;
 
   //~ waiting_threads = cntthreads;
@@ -152,7 +152,7 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
   for (size_t i = 0; i < cntthreads; ++i)
   {
     exp_threads.emplace_back( (i % 2) ? consumer : producer,
-                              &qu,
+                              &stack,
                               cntoper / cntthreads
                             );
   }
@@ -165,9 +165,9 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
 
   std::cout << "elapsed time = " << elapsedtime << "ms" << std::endl;
 
-  if (((cntthreads % 2) == 0) == success(qu.deq()))
+  if (((cntthreads % 2) == 0) == success(stack.pop()))
   {
-    std::cerr << "expected " << ((cntthreads % 2)? "a non-" : "an ") << "empty queue"
+    std::cerr << "expected " << ((cntthreads % 2)? "a non-" : "an ") << "empty stack"
               << std::endl;
     fail();
   }

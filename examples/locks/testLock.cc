@@ -9,9 +9,13 @@
 #include <mutex>
 #include <cassert>
 
-#include "ucl/locks.hpp"
+#ifndef UCL_RUNTIME_DATA
+#define UCL_RUNTIME_DATA 1
+#endif
 
-//~ #include "ucl/low-power-hpc-locks.hpp"
+#include "ucl/spinlock.hpp"
+
+#include "lock-selection.hpp"
 
 #ifndef NUM_ITER
 #define NUM_ITER 1000000
@@ -20,30 +24,6 @@
 #ifndef NUM_THREADS
 #define NUM_THREADS 4
 #endif /* NUM_THREADS */
-
-#ifdef UNLEASHED_LOW_POWER
-namespace locks = low_power;
-#else
-namespace locks = ucl;
-#endif /* UNLEASHED_LOW_POWER */
-
-#if defined TEST_ANDERSON
-  typedef locks::anderson_lock<NUM_THREADS * 2> default_lock;
-#elif defined TEST_TTAS
-  typedef locks::ttas_lock                      default_lock;
-#elif defined TEST_TTAS_BO
-  typedef locks::ttas_lock_backoff              default_lock;
-#elif defined TEST_CLH
-  typedef locks::clh_lock                       default_lock;
-#elif defined TEST_MCS
-  typedef locks::mcs_lock                       default_lock;
-#elif defined TEST_COUNTING
-  typedef locks::counting_lock                  default_lock;
-#elif defined TEST_MUTEX
-  typedef std::mutex                            default_lock;
-#else
-  #error "undefined default lock"
-#endif /* TEST_* */
 
 typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
@@ -75,7 +55,7 @@ size_t opsPerThread(size_t maxthread, size_t totalops, size_t thrid)
   size_t numops = totalops / maxthread;
   size_t remops = totalops % maxthread;
 
-  if (remops > 0 && thrid < remops) ++numops;
+  if (thrid < remops) ++numops;
 
   return numops;
 }
@@ -88,7 +68,7 @@ void sync_start()
   while (waiting_threads.load(std::memory_order_relaxed)) {}
 }
 
-void ptest(time_point* endtime, double* res, const size_t cnt)
+void ptest(time_point* endtime, double* res, size_t* num_commits, const size_t cnt)
 {
   size_t total = 0;
   sync_start();
@@ -98,7 +78,7 @@ void ptest(time_point* endtime, double* res, const size_t cnt)
     mtx.lock();
     total += ++ctrlvar;
     mtx.unlock();
-}
+  }
 
   size_t thrnum = active_threads.fetch_sub(1, std::memory_order_relaxed);
 
@@ -108,6 +88,12 @@ void ptest(time_point* endtime, double* res, const size_t cnt)
   }
 
   (*res) = total / static_cast<double>(cnt);
+  
+#if UCL_RUNTIME_DATA
+  *num_commits = ucl::num_commits;
+#else
+  *num_commits = 0;
+#endif /* UCL_RUNTIME_DATA */ 
 }
 
 static
@@ -122,6 +108,7 @@ void parallel_test(const size_t numthreads, const size_t numiter)
 
   std::list<std::thread> exp_threads;
   std::vector<double>    res_threads(numthreads, 0);
+  std::vector<size_t>    run_data_threads(numthreads, 0);
 
   waiting_threads = numthreads;
   active_threads  = numthreads;
@@ -134,25 +121,24 @@ void parallel_test(const size_t numthreads, const size_t numiter)
   {
     size_t ops = opsPerThread(numthreads, numiter, i);
 
-    exp_threads.emplace_back(ptest, &endtime, &res_threads.at(i), ops);
+    exp_threads.emplace_back(ptest, &endtime, &res_threads.at(i), &run_data_threads.at(i), ops);
   }
 
   // join
   for (std::thread& thr : exp_threads) { thr.join(); }
 
-  std::cout << "total time = " << duration(starttime, endtime) << " @" << ctrlvar
-            << std::endl;
-
   std::cout.precision(17);
 
   double total = 0;
+  size_t total_commits = 0;
 
   // compute average increment to assess fairness
   for (size_t i = 0; i < numthreads; ++i)
   {
     total += res_threads.at(i);
+    total_commits += run_data_threads.at(i);
     std::cout << "avg-inc " << i << ": " << std::fixed << res_threads.at(i) << std::endl;
-}
+  }
 
   double mean = total / numthreads;
   double variance = std::accumulate( res_threads.begin(),
@@ -164,7 +150,11 @@ void parallel_test(const size_t numthreads, const size_t numiter)
                                      }
                                    );
 
-  std::cout << "std dev: " << std::sqrt(variance) << std::endl;
+  std::cout << std::endl
+            << "std dev = " << std::sqrt(variance) << std::endl
+            << "   time = " << duration(starttime, endtime) << " @" << ctrlvar << std::endl
+            << "commits = " << total_commits << " (" << (total_commits * 100.0 / ctrlvar) << ")" 
+            << std::endl;  
 }
 
 int main(int argc, char** args)

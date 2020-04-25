@@ -1,0 +1,29 @@
+
+include ../make-util/discover-toolset.mk
+
+COMP=$(notdir $(CXX))
+
+# Output directory
+ifeq ($(COMPDIR),)
+  COMPDIR:=$(UCL_HOME)/examples/locks/tmp/$(HOSTNAME)
+  dummy := $(shell mkdir -p $(COMPDIR))
+  $(info *** COMPDIR set to $(COMPDIR))
+endif
+
+
+INCLUDE:=$(UCL_HOME)/include
+
+# TEST_LOCK: TEST_TTAS, TEST_TTAS_BO, TEST_ANDERSON, TEST_COUNTING, 
+#            TEST_CLH, TEST_MCS, TEST_MUTEX
+TEST_LOCK ?= TEST_TTAS
+CXXFLAGS := -std=c++11 -D$(TEST_LOCK)=1 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(DBGFLAG)
+
+.PHONY: test clean
+
+test: $(COMPDIR)/testLock-$(TEST_LOCK)-$(COMP).bin
+
+$(COMPDIR)/testLock-$(TEST_LOCK)-$(COMP).bin: testLock.cc lock-selection.hpp $(INCLUDE)/ucl/spinlock.hpp
+	$(CXX) $(CXXFLAGS) -I$(INCLUDE) $< -o $@
+
+clean:
+	rm -f $(COMPDIR)/testLock*.o $(COMPDIR)/testLock*.bin

@@ -5,10 +5,9 @@
 
 #include "ucl/task.hpp"
 #include "ucl/queue.hpp"
-#include "ucl/generalutil.hpp"
+#include "ucl/unused.hpp"
 
-#define ENABLE_UNSAFE_LOCK_IMPLS 1
-#include "ucl/locks.hpp"
+#include "ucl/spinlock.hpp"
 
 namespace ucl
 {
@@ -27,14 +26,18 @@ namespace ucl
 
 
     // data members
-    const uint_fast32_t                    workers;
+    const nat_t                    workers;
     bag_t                                  queue;
     ucl::aligned_atomic_type<int_fast32_t> activethreads;
 
     static thread_local bool active;
 
-    single_q_pool(uint_fast32_t numthreads, value_type work, const allocator_type& alloc = allocator_type())
+    single_q_pool(nat_t numthreads, const allocator_type& alloc = allocator_type())
     : workers(numthreads), queue(alloc), activethreads(numthreads)
+    {}
+
+    single_q_pool(nat_t numthreads, value_type work, const allocator_type& alloc = allocator_type())
+    : single_q_pool(numthreads, alloc)
     {
       queue.enq(std::move(work));
     }
@@ -53,12 +56,13 @@ namespace ucl
 
     // attempts to get a task from some queue and stores it in t
     // \result true, iff a task could be retrieved
-    bool deq(value_type& t)
+    value_type* deq(void* rawmem)
     {
-      bool res;
-      std::tie(t, res) = queue.deq();
+      bool        res;
+      value_type* tsk = new (rawmem) value_type;
 
-      return res;
+      std::tie(*tsk, res) = queue.deq();
+      return res ? tsk : nullptr;
     }
 
     // adds a new task t to this thread's queue
@@ -106,6 +110,13 @@ namespace ucl
     {
       queue.qrelease_memory();
     }
+
+    private:
+      single_q_pool() = delete;
+      single_q_pool(const single_q_pool&) = delete;
+      single_q_pool(single_q_pool&&) = delete;
+      single_q_pool operator=(const single_q_pool&) = delete;
+      single_q_pool operator=(single_q_pool&&) = delete;
   };
 
   template <class MPMCBag>

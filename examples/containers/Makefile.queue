@@ -1,27 +1,23 @@
-
 include ../make-util/discover-toolset.mk
-
-# Output directory
-OUTPUTDIR ?= ./tmp
-
 
 # set default test, if not set
 #
 # TEST_NAME = TEST_NO_MANAGER TEST_EPOCH_MANAGER TEST_PUB_SCAN_MANAGER TEST_GC_MANAGER
 #             TEST_STD_LOCKGUARD TEST_UNLEASHED_LOCKGUARD TEST_UNLEASHED_ELIDEGUARD
 #
-
 TEST_NAME ?= TEST_EPOCH_MANAGER
 
 
 # libraries
 
-SOURCE := testStack.cc
+SOURCE := testQueue.cc
 TARGET := $(SOURCE:.cc=.bin)
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)
 LIBS :=
+
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 ifeq ($(TEST_NAME),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -43,12 +39,12 @@ CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 
 # LIBS+=-latomic # needed on some architectures
 
-.PHONY: test clean
+.PHONY: test
+test: $(COMPDIR)/$(TARGET)
 
-test: $(OUTPUTDIR)/$(TARGET)
-
-$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(UCL_HOME)/include/ucl/queue.hpp Makefile.queue
+$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/queue.hpp Makefile.queue
 	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
+.PHONY: clean
 clean:
-	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)
+	rm -f $(TARGET)

@@ -6,80 +6,98 @@
 #include <list>
 #include <iomanip>
 
-#include "ucl/generalutil.hpp"
-#include "ucl/locks.hpp"
+#ifndef UCL_RUNTIME_DATA
+#define UCL_RUNTIME_DATA 1
+#endif
+
+#include "ucl/unused.hpp"
+#include "ucl/spinlock.hpp"
+
+#include "lock-selection.hpp"
 
 #ifndef PNOITER
 #define PNOITER 1000
 #endif /* PNOITER */
 
 #ifndef NUM_THREADS
-#define NUM_THREADS 4
+#define NUM_THREADS 64
 #endif /* NUM_THREADS */
 
 #ifndef NUM_RUNS
 #define NUM_RUNS 1
 #endif /* NUM_RUNS */
 
-#ifndef TEST_CONFLICTS
-#define TEST_CONFLICTS 0
-#endif /* TEST_CONFLICTS */
+#ifndef NUM_RETRIES
+#define NUM_RETRIES 5
+#endif /* NUM_RUNS */
+
+
 
 
 /// counts number of threads that are ready to run
-static size_t waiting_threads;
+static std::atomic<size_t> waiting_threads;
 
 /// waits until all threads have been created and are ready to run
 static
 void sync_start()
 {
-  assert(waiting_threads);
-  __sync_fetch_and_sub(&waiting_threads, 1);
+  assert(waiting_threads.load(std::memory_order_relaxed));
 
-  while (waiting_threads) __sync_synchronize();
+  waiting_threads.fetch_sub(1, std::memory_order_relaxed);
+
+  while (waiting_threads.load(std::memory_order_relaxed));
 }
 
 static size_t         total_time(0);
-static size_t         counter(0);
-static ucl::ttas_lock lock;
+static default_lock lock;
 
 static
-void test()
+void test(size_t& counter, size_t retries)
 {
-  auto guard = ucl::elide_guard(5, lock);
+  auto guard = ucl::elide_guard(retries, lock);
 
   ++counter;
 }
 
-typedef std::chrono::time_point<std::chrono::system_clock> time_point;
-static time_point starttime;
-
-void ptest(size_t numiter)
+void ptest(size_t numiter, size_t retries, size_t& counter, size_t& my_commits)
 {
   sync_start();
 
   while (numiter)
   {
-    test();
+    test(counter, retries);
     --numiter;
   }
+  
+#if UCL_RUNTIME_DATA
+  my_commits = ucl::num_commits;
+#else
+  my_commits = 0;
+#endif /* UCL_RUNTIME_DATA */  
 }
 
 
-void parallel_test(const size_t cntthreads, const size_t cntoper)
+void parallel_test(const size_t cntthreads, const size_t num_retries, const size_t cntoper)
 {
-  std::cout << std::endl;
-
-  std::list<std::thread>  exp_threads;
+  typedef std::chrono::time_point<std::chrono::system_clock> time_point;
 
   waiting_threads = cntthreads;
 
-  starttime = std::chrono::system_clock::now();
+  std::cout << std::endl;
+  
+  size_t                 counter = 0;
+  std::list<std::thread> exp_threads;
+  std::vector<size_t>    runtime_data(cntthreads, 0);
+  time_point             starttime = std::chrono::system_clock::now();
 
   // spawn
   for (size_t i = 0; i < cntthreads; ++i)
   {
-    exp_threads.emplace_back(ptest, cntoper);
+    size_t ops = cntoper / cntthreads;
+    
+    if (i < cntoper % cntthreads) ++ops;
+    
+    exp_threads.emplace_back(ptest, ops, num_retries, std::ref(counter), std::ref(runtime_data.at(i)));
   }
 
   // join
@@ -88,10 +106,20 @@ void parallel_test(const size_t cntthreads, const size_t cntoper)
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 
-  __sync_synchronize();
+  size_t total_commits = std::accumulate(runtime_data.begin(), runtime_data.end(), 0, std::plus<size_t>());
+
   std::cout << "elapsed time = " << elapsedtime << "ms" << std::endl;
-  std::cout << "counter = " << counter << std::endl;
-  if (counter != cntthreads * cntoper) std::cout << "ERROR: counter not atomic!!" << std::endl;
+  
+#if UCL_RUNTIME_DATA
+  std::cout << "commits = " << total_commits << " (" << (total_commits * 100.0 / cntoper) << "%)" << std::endl;
+#else
+  std::cout << "commits = N/A (enable UCL_RUNTIME_DATA)" << std::endl;
+#endif /* UCL_RUNTIME_DATA */
+  
+  std::cout << "counter = " << counter 
+            << std::endl;
+            
+  if (counter != cntoper) std::cerr << "ERROR: counter not atomic!!" << std::endl;
 
   total_time += elapsedtime;
 
@@ -116,22 +144,28 @@ int main(int argc, char** args)
 {
   size_t pnoiter = PNOITER;
   size_t num_threads = NUM_THREADS;
+  size_t num_retries = NUM_RETRIES;
   size_t num_runs = NUM_RUNS;
 
   if (argc > 1) pnoiter = asNum(*(args+1));
   if (argc > 2) num_threads = asNum(*(args+2));
-  if (argc > 3) num_runs = asNum(*(args+3));
+  if (argc > 3) num_retries = asNum(*(args+3));
+  if (argc > 4) num_runs = asNum(*(args+4));
 
   // sequential_test(pnoiter);
 
   try
   {
-    std::cout << "*** elideguard test " << pnoiter << "<ops  thrds>" << num_threads << std::endl;
+    std::cout << "*** elideguard test " << typeid(default_lock).name() << std::endl;
+    std::cout << "* total-ops = " << pnoiter << std::endl;
+    std::cout << "* threads   = " << num_threads << std::endl;
+    std::cout << "* retries   = " << num_retries << std::endl;
+    std::cout << "* runs      = " << num_runs << std::endl << std::endl;
 
     for (size_t i = 0; i < num_runs; ++i)
     {
       std::cout << "***** ***** ***** restart ***** " << i << std::endl;
-      parallel_test(num_threads, pnoiter);
+      parallel_test(num_threads, num_retries, pnoiter);
     }
 
     std::cerr <<"Average time: "<<total_time/num_runs<<std::endl;

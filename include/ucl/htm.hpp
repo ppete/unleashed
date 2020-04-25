@@ -62,8 +62,8 @@ namespace htm
     }
 
     /// returns the transaction's state
-    /// \todo check implementations - seems broken when used in elided lock
-    inline state transactional()
+    /// \todo check implementations 
+    inline state status()
     {
       if (_xtest()) return none;
 
@@ -72,14 +72,15 @@ namespace htm
 
     /// returns whether a transaction could be retried
     /// note, always true on Intel systems
-    inline bool may_retry()
+    inline constexpr
+    bool may_retry()
     {
       return true;
     }
 
     struct intel_x86_tag
     {
-      static const size_t len = 80;
+      enum : size_t { len = 80 };
     };
 
     typedef intel_x86_tag arch_tag;
@@ -145,7 +146,7 @@ namespace htm
       return __builtin_get_texasr();
     }
 
-    inline state transactional()
+    inline state status()
     {
       unsigned char tx_state = _HTM_STATE (__builtin_ttest ());
       state         res      = none;
@@ -165,7 +166,7 @@ namespace htm
 
     struct power8_tag
     {
-      static const size_t len = 21;
+      enum : size_t { len = 21 };
     };
 
     typedef power8_tag arch_tag;
@@ -181,7 +182,7 @@ namespace htm
   {
     if (!b)
     {
-      if (htm::tx::transactional() == htm::tx::active)
+      if (htm::tx::status() != htm::tx::none)
         htm::tx::end();
 
       assert(false);

@@ -1,25 +1,23 @@
-// g++ -ggdb -O2 -std=c++11 -Wall -Wextra -pedantic -pthread -DTEST_NO_MANAGER=1 -DTEST_LOCKFREE_SKIPLIST=1 -DWITHOUT_GC=1 -I../include parSkipListUniqueElems.cc  -o tmp/parSkipListUniqueElems.bin
-
 #include <thread>
 #include <iostream>
 #include <sstream>
 #include <list>
 #include <iomanip>
 
-#include "generalutil.hpp"
+#include "ucl/unused.hpp"
 
 #ifndef WITHOUT_GC
   #define GC_THREADS 1
   // #define GC_DEBUG 1
   #include <gc/gc.h>
 
-  #include "gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
+  #include "ucl/gc-cxx11/gc_cxx11.hpp" // use GC allocator modified to work with C++11
 #endif /* WITHOUT_GC */
 
 #ifdef HTM_ENABLED
-#include "htm-skiplist-lock.hpp"
+#include "ucl/htm-skiplist-lock.hpp"
 #else
-#include "skiplist.hpp"
+#include "ucl/skiplist.hpp"
 #endif
 
 #ifndef PNOITER
@@ -79,7 +77,7 @@ using default_alloc = lf::just_alloc<T>;
 #elif defined TEST_GC_MANAGER
 
 template <class T>
-using default_alloc = lf::gc_manager<T,  gc_allocator_cxx11>;
+using default_alloc = lf::gc_manager<T, gc_allocator_cxx11>;
 
 #elif defined TEST_EPOCH_MANAGER
 
@@ -115,19 +113,19 @@ static const size_t LEVELS = TEST_MAX_LEVELS;
 template <class T>
 using skiplist = htm::SkipList<T, LEVELS, std::less<T>, default_alloc<T> >;
 
-#elif defined TEST_LOCKING_SKIPLIST
-
-template <class T>
-using skiplist = fg::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
-
-#elif defined TEST_LOCKFREE_SKIPLIST
+#elif defined TEST_LF_CONTAINER
 
 template <class T>
 using skiplist = lf::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
 
+#elif defined TEST_LOCK_CONTAINER
+
+template <class T>
+using skiplist = fg::skiplist<T, std::less<T>, default_alloc<T>, LEVELS>;
+
 #else
 
- #error "preprocessor define for container class is needed (TEST_LOCKING_SKIPLIST, TEST_LOCKFREE_SKIPLIST, HTM_ENABLED)"
+ #error "preprocessor define for container class is needed (HTM_ENABLED, TEST_LF_CONTAINER, TEST_LOCK_CONTAINER)"
 
 #endif
 
@@ -316,7 +314,7 @@ void container_test_prefix(ThreadInfo& ti)
       int     succ = ti.container->insert(elem);
 #endif /* HTM_ENABLED */
 
-      assert(succ >= 0), unused(succ);
+      assert(succ >= 0), ucl::unused(succ);
       ++ti.succ;
       // std::cout << "added " << elem << " " << succ << std::endl;
 
@@ -363,7 +361,7 @@ void container_test(ThreadInfo& ti)
         int    succ = ti.container->insert(elem);
 #endif /* HTM_ENABLED */
 
-        assert(succ >= 0), unused(succ);
+        assert(succ >= 0), ucl::unused(succ);
         ++ti.succ;
       }
       else

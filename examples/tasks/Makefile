@@ -1,8 +1,4 @@
 
-ifeq ($(NUMTHREADS),)
-  NUMTHREADS=20
-endif
-
 include ../make-util/discover-toolset.mk
 include ../make-util/discover-task-models.mk
 
@@ -10,23 +6,25 @@ include ../make-util/discover-task-models.mk
 
 default:
 	mkdir -p ./tmp
-	cd alignment-2l; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd dot-product; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd fib; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd floorplan; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd knapsack; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd nqueens-0; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd pi; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd tsp; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
-	cd uts; $(MAKE) OUTPUTDIR=../tmp NUMTHREADS=$(NUMTHREADS)
+	cd pi; $(MAKE)
+	cd alignment-2l; $(MAKE)
+	cd dot-product; $(MAKE)
+	cd fib; $(MAKE)
+	cd floorplan; $(MAKE)
+	cd knapsack; $(MAKE)
+	cd nqueens-0; $(MAKE)
+	cd qsort; $(MAKE)
+	cd tsp; $(MAKE)
+	cd uts; $(MAKE)
 
 clean:
-	cd alignment-2l; $(MAKE) OUTPUTDIR=../tmp clean
-	cd dot-product; $(MAKE) OUTPUTDIR=../tmp clean
-	cd fib; $(MAKE) OUTPUTDIR=../tmp clean
-	cd floorplan; $(MAKE) OUTPUTDIR=../tmp clean
-	cd knapsack; $(MAKE) OUTPUTDIR=../tmp clean
-	cd nqueens-0; $(MAKE) OUTPUTDIR=../tmp clean
-	cd pi; $(MAKE) OUTPUTDIR=../tmp clean
-	cd tsp; $(MAKE) OUTPUTDIR=../tmp clean
-	cd uts; $(MAKE) OUTPUTDIR=../tmp clean
+	cd alignment-2l; $(MAKE)  clean
+	cd dot-product; $(MAKE)  clean
+	cd fib; $(MAKE)  clean
+	cd floorplan; $(MAKE)  clean
+	cd knapsack; $(MAKE)  clean
+	cd msort; $(MAKE)  clean
+	cd nqueens-0; $(MAKE)  clean
+	cd pi; $(MAKE)  clean
+	cd tsp; $(MAKE)  clean
+	cd uts; $(MAKE)  clean

@@ -3,18 +3,20 @@
 ## expects SOURCES variable be set to list of files to be compiled
 
 # extract name of the main source file
-CODE=$(basename $(notdir $(firstword $(SOURCES))))
+CODE:=$(basename $(notdir $(firstword $(SOURCES))))
 
 ##
 ## compiler name
 
-COMP=$(notdir $(CXX))
+COMP:=$(notdir $(CXX))
 
 ##
 ## output directory
 
 ifeq ($(COMPDIR),)
-  export COMPDIR=$(UCL_HOME)/examples/tasks/tmp
+  THEHOST:=$(shell hostname | sed -e s/[0-9]*//g)
+  COMPDIR:=$(UCL_HOME)/examples/tasks/tmp/$(THEHOST)
+  dummy := $(shell mkdir -p $(COMPDIR))
   $(info *** COMPDIR set to $(COMPDIR))
 endif
 
@@ -47,31 +49,25 @@ ifeq ($(SEQ_ENABLED),1)
   TARGETS += $(COMPDIR)/$(CODE)-seq-$(COMP).bin
 
   ifeq ($(WOMP_ENABLED),1)
-    OPENMPV=-DWOMP_VERSION=1
+    OPENMPV:=-DWOMP_VERSION=1
   else
-    OPENMPV=-DOMP_VERSION=1
+    OPENMPV:=-DOMP_VERSION=1
   endif
 endif
 
-ifeq ($(DBGFLAG),)
-  DBGFLAG:=-DNDEBUG=1
-else
-  OPTFLAG:=-O0
-  $(info *** changed OPTFLAG to -Og)
 endif
+
+CXXVERSION ?= -std=c++11
 
 default: $(TARGETS)
 
-CXXFLAGS = -std=c++11 $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG)
+CXXFLAGS = $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG)
 
 $(COMPDIR)/$(CODE)-seq-$(COMP).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) $(OPENMPV) -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(COMPDIR)/$(CODE)-ucl-$(COMP).bin: $(SOURCES) $(UCL_HOME)/include/ucl/task.hpp $(UCL_HOME)/include/ucl/task-pool-x.hpp
-	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DUCL_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
-
-$(COMPDIR)/$(CODE)-htmucl-$(COMP).bin: $(SOURCES) $(UCL_HOME)/include/ucl/task.hpp
-	$(CXX) $(CXXFLAGS) $(THREADFLAG) $(HTMFLAG) -DUCL_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
+	$(CXX) $(CXXFLAGS) $(THREADFLAG) $(UCLFLAG) -DUCL_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(COMPDIR)/$(CODE)-omp-$(COMP).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) $(OMPFLAG) -DOMP_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@

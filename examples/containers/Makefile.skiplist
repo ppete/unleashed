@@ -1,13 +1,11 @@
+
 include ../make-util/discover-toolset.mk
 
-# Output directory
-OUTPUTDIR ?= ./tmp
-
-TEST_ALLOC ?= TEST_EPOCH_MANAGER
-TEST_CONTAINER ?= TEST_LOCKING_SKIPLIST
+TEST_ALLOC     ?= TEST_EPOCH_MANAGER
+TEST_CONTAINER ?= TEST_LOCK_CONTAINER
 
 SOURCE:=parSkipListUniqueElems.cc
-TARGET:=skiplist.bin
+TARGET:=skiplist
 INCLUDE:=$(UCL_HOME)/include
 LIBS:=
 FLAGS:=$(THREADFLAG)
@@ -28,19 +26,20 @@ endif
 ifneq ($(TEST_HTM),)
   DEFINES+= -DHTM_ENABLED=1
   FLAGS+= $(HTMFLAG)
+  HTMPREFIX:=-HTM
 endif
 
-DEFINES+= -D$(TEST_ALLOC)=1 -D$(TEST_CONTAINER)=1
+DEFINES+= -D$(TEST_CONTAINER)=1
 
 CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 # LIBS+=-latomic # needed on some architectures
 
-.PHONY: test clean
+.PHONY: test
+test: $(COMPDIR)/$(TARGET)$(HTMPREFIX)-$(TEST_ALLOC)-$(TEST_CONTAINER)-$(CXX).bin
 
-test: $(OUTPUTDIR)/$(TARGET)
-
-$(OUTPUTDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/pmemory.hpp $(INCLUDE)/ucl/skiplist.hpp $(INCLUDE)/ucl/atomicutil.hpp Makefile.skiplist
+$(COMPDIR)/%.bin: $(SOURCE) $(INCLUDE)/ucl/pmemory.hpp $(INCLUDE)/ucl/skiplist.hpp $(INCLUDE)/ucl/atomicutil.hpp Makefile.skiplist
 	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
+.PHONY: clean
 clean:
-	rm -f $(OUTPUTDIR)/*.o $(OUTPUTDIR)/*.bin $(TARGET)
+	rm -f $(COMPDIR)/$(TARGET)*

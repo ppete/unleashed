@@ -1,6 +1,6 @@
 
 # bitutil.hpp circularqueue.hpp  vector.hpp
-SOURCES=pmemory.hpp skiplist.hpp atomicutil.hpp task.hpp queue.hpp stack.hpp locks.hpp \
+SOURCES=pmemory.hpp skiplist.hpp atomicutil.hpp task.hpp queue.hpp stack.hpp spinlock.hpp \
         htm.hpp htm-skiplist.hpp htm-memory.hpp bitutil.hpp archmodel.hpp
 
 .PHONY: dox clean

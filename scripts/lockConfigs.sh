@@ -1,25 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 test_make()
 {
   lock=$1
   expected=$2
 
-  make TEST_LOCK="$lock" -f Makefile.locks
+  make TEST_LOCK="$lock" -f Makefile.spinlock
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
     exit $res
   fi
-
-  if [[ "$expected" -eq 0 ]]; then
-    echo run
-    mv "$COMPDIR"/lockTest.bin "$COMPDIR"/"lock-$lock".bin
-  fi
 }
 
 test_locks()
 {
+  cd ../examples/locks
+
   test_make TEST_ANDERSON 0
   test_make TEST_COUNTING 0
   test_make TEST_MCS 0

@@ -112,7 +112,7 @@ namespace htm
 
         if (!(next || idx < noLevels))
         {
-          if (tx::transactional() == tx::active)
+          if (tx::status() == tx::active)
           {
             tx::end();
             std::cout << noLevels << " " << idx << " " << next << std::endl;
@@ -496,7 +496,7 @@ namespace htm
   static inline
   void end_tx_if_needed(epoch_manager<_Tp, _Alloc>*)
   {
-    htm_assert(tx::transactional() == tx::active);
+    htm_assert(tx::status() == tx::active);
     tx::end();
   }
 
@@ -624,7 +624,7 @@ static const bool accelerated_restart = false;
           (*newNode)[level] = succs.at(level);
         }
 
-        htm_assert(tx::transactional() == tx::none);
+        htm_assert(tx::status() == tx::none);
         if (tx::begin())
         {
           defaultLock.load(std::memory_order_relaxed);
@@ -843,7 +843,7 @@ static const bool accelerated_restart = false;
         node_type* victim          = succs.at(data.levelFound);
         assert(victim);
 
-        assert(tx::transactional() == tx::none);
+        assert(tx::status() == tx::none);
         if (tx::begin())
         {
           // in case somebody else is removing this node
