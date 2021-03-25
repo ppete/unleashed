@@ -41,6 +41,10 @@ ifeq ($(TARGETARCH),)
   ifneq (,$(findstring sparc,$(THISSYSTEM)))
     TARGETARCH:=SPARC
   endif
+  
+  ifneq (,$(findstring mips64,$(THISSYSTEM)))
+    TARGETARCH:=MIPS64
+  endif
 endif
 
 
@@ -77,10 +81,12 @@ ifeq ($(TOOLSET),)
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH ?= -mcpu=native
+      export CPUARCH  ?= -mcpu=native
+    else ifeq ($(TARGETARCH),SPARC)
+      export CPUARCH  ?= -mcpu=native
     else
       export HTMFLAG  ?= -mrtm
-      export CPUARCH ?= -march=native
+      export CPUARCH  ?= -march=native
     endif
   endif
 endif
@@ -96,10 +102,15 @@ ifeq ($(TOOLSET),)
 
     ifeq ($(TARGETARCH),POWER)
       export HTMFLAG  ?= -mhtm
-      export CPUARCH ?= -mcpu=native
-    else
+      export CPUARCH  ?= -mcpu=native
+    else 
+    # Clang10 does not accept -mcpu=native on Sparc and MIPS
+    ifneq ($(TARGETARCH),SPARC)
+    ifneq ($(TARGETARCH),MIPS64)
       export HTMFLAG  ?= -mrtm
-      export CPUARCH ?= -march=native
+      export CPUARCH  ?= -march=native
+    endif
+    endif
     endif
   endif
 endif
