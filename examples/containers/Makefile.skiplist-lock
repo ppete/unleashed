@@ -1,16 +1,14 @@
-include ./common.mk
+include ../make-util/discover-toolset.mk
 
 TEST_CONTAINER?=TEST_LOCKING_SKIPLIST
 TEST_ALLOC?=TEST_NO_MANAGER
 
-# libraries
-INCDIR=
-LIBS=
-
 SOURCE:=parSkipListUniqueElems-lock.cc
 TARGET:=lock-skiplist.bin
-INCLUDE:=$(UCL_HOME)/include
 DEFINES:=-D$(TEST_ALLOC)=1
+INCLUDE:=-I$(UCL_HOME)/include
+FLAGS := $(THREADFLAG)
+LIBS:=$(LIBATOMIC)
 
 
 ifeq ($(TEST_HTM),)
@@ -20,11 +18,11 @@ else
   DEFINES+= -DHTM_ENABLED=1
 endif
 
-CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
+CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 ifeq ($(TEST_ALLOC),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
-    INCDIR+=-I$(GC_HOME)/include
+    INCLUDE+=-I$(GC_HOME)/include
     LIBS+=-L$(GC_HOME)/lib
   endif
 
@@ -33,13 +31,13 @@ else
   DEFINES+= -DWITHOUT_GC=1
 endif
 
-# LIBS+=-latomic # needed on some architectures
+
 
 .PHONY: test
 test: $(COMPDIR)/$(TARGET)
 
-$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/pmemory.hpp $(INCLUDE)/ucl/skiplist.hpp $(INCLUDE)/ucl/atomicutil.hpp Makefile.skiplist-lock
-	$(CXX) $(CXXOPT) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
+$(COMPDIR)/$(TARGET): $(SOURCE) $(UCL_HOME)/include/ucl/pmemory.hpp $(UCL_HOME)/include/ucl/skiplist.hpp $(UCL_HOME)/include/ucl/atomicutil.hpp Makefile.skiplist-lock
+	$(CXX) $(CXXOPT) $(CXXFLAGS) $(DEFINES) $(INCLUDE) $< $(LIBS) -o $@
 
 .PHONY: clean
 clean:

@@ -4,6 +4,7 @@
 
 #include <sstream>
 
+#if OPENMP_ENABLED
 #if OMP_VERSION
 #include <omp.h>
 #endif /* OMP_VERSION */
@@ -12,6 +13,7 @@
 // close to the original version in the Barcelona OpenMP Testing Suite (BOTS).
 #include <omp.h>
 #endif /* WOMP_VERSION */
+#endif /* OPENMP_ENABLED */
 
 #if TBB_VERSION
 #include <tbb/task_scheduler_init.h>

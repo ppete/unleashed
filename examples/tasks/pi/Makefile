@@ -7,6 +7,6 @@ WOMP_ENABLED=1
 
 SOURCES=pi.cc
 
-LINKATOMIC=-latomic
+LINKATOMIC=$(LIBATOMIC)
 
 include ../common.mk

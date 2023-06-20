@@ -26,8 +26,8 @@ endif
 
 .PHONY: default clean
 
-TARGETS = $(COMPDIR)/$(CODE)-ucl-$(COMP).bin \
-          $(COMPDIR)/$(CODE)-omp-$(COMP).bin
+TARGETS = $(COMPDIR)/$(CODE)-ucl-$(COMP).bin 
+          
 
 ifeq ($(TBB_ENABLED),1)
   TARGETS += $(COMPDIR)/$(CODE)-tbb-$(COMP).bin
@@ -41,8 +41,12 @@ ifeq ($(QTHREADS_ENABLED),1)
   TARGETS += $(COMPDIR)/$(CODE)-qthreads-$(COMP).bin
 endif
 
-ifeq ($(WOMP_ENABLED),1)
-  TARGETS += $(COMPDIR)/$(CODE)-womp-$(COMP).bin
+ifeq ($(OPENMP_ENABLED),1)
+  TARGETS += $(COMPDIR)/$(CODE)-omp-$(COMP).bin
+
+  ifeq ($(WOMP_ENABLED),1)
+    TARGETS += $(COMPDIR)/$(CODE)-womp-$(COMP).bin
+  endif
 endif
 
 ifeq ($(SEQ_ENABLED),1)
@@ -78,7 +82,7 @@ $(COMPDIR)/$(CODE)-cilk-$(COMP).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) $(CILKFLAG) -DCILK_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(COMPDIR)/$(CODE)-tbb-$(COMP).bin: $(SOURCES)
-	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DTBB_VERSION=1 -I$(UCL_HOME)/include -I$(TBB_HOME)/include $(SOURCES) -latomic -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $@
+	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DTBB_VERSION=1 -I$(UCL_HOME)/include -I$(TBB_HOME)/include $(SOURCES) $(LINKATOMIC) -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $@
 
 $(COMPDIR)/$(CODE)-qthreads-$(COMP).bin: $(SOURCES)
 	$(CXX) $(CXXFLAGS) $(THREADFLAG) -DQTHREADS_VERSION=1 -I$(UCL_HOME)/include -I$(QTHREADS_HOME)/include $(SOURCES) $(LINKATOMIC) -L$(QTHREADS_HOME)/lib -lqthread -o $@

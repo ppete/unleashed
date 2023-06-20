@@ -127,12 +127,6 @@ bool isValid(const board<N>& board)
 
 //~ histogram<long double> hist(0.0, 1.0, 100);
 
-static inline
-size_t thread_num()
-{
-  return omp_get_thread_num();
-}
-
 size_t partialresult;
 #pragma omp threadprivate(partialresult)
 

@@ -15,7 +15,7 @@ TARGET := $(SOURCE:.cc=.bin)
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)
-LIBS :=
+LIBS := $(LIBATOMIC)
 
 CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
@@ -36,8 +36,6 @@ endif
 
 CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 
-
-# LIBS+=-latomic # needed on some architectures
 
 .PHONY: test
 test: $(COMPDIR)/$(TARGET)

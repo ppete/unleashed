@@ -1,10 +1,9 @@
-#include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
-#include <cilk/cilk_api.h>
+#include <cstddef>
+#include <omp.h>
 
-int task(int i)
+int test(int i)
 {
-  return 0;
+  return i;
 }
 
 size_t partialresult;
@@ -22,7 +21,7 @@ int test_omp(int i)
     #pragma omp single
     #pragma omp taskgroup
     {
-      test(i);
+      partialresult = test(i);
     }
 
     #pragma omp atomic
@@ -34,5 +33,6 @@ int test_omp(int i)
 
 int main()
 {
+  test_omp(1);
   return 0;
 }
