@@ -33,13 +33,15 @@
  and/or fitness for purpose.
  ---------------------------------------------------------------------------
  Issue Date: 01/08/2005
+
+ PP: 27/06/23 Updated include files and types to match C/C++ standard type names.
 */
 
 #ifndef _SHA1_H
 #define _SHA1_H
 
-#include <stdlib.h>
-#include <stdint.h>
+#include <cstdlib>
+#include <cstdint>
 #include "brg_types.h"
 
 #define SHA1_BLOCK_SIZE  64
@@ -56,15 +58,15 @@ extern "C"
 #define HIGH_BITS   0x80000000
 
 #define sha1_context sha1_ctx_s
-typedef u_int8_t RNG_state;
-typedef u_int32_t  uint32;
+typedef std::uint8_t RNG_state;
+typedef std::uint32_t uint32;
 //typedef char *   caddr_t;
 
 /**********************************/
 /* random number generator state  */
 /**********************************/
 struct state_t {
-  u_int8_t state[20];
+  std::uint8_t state[20];
 };
 
 
@@ -82,9 +84,9 @@ void   rng_showtype( void );
 /* type to hold the SHA256 context  */
 
 struct sha1_ctx_s
-{   uint_32t count[2];
-    uint_32t hash[5];
-    uint_32t wbuf[16];
+{ std::uint32_t count[2];
+  std::uint32_t hash[5];
+  std::uint32_t wbuf[16];
 };
 
 typedef struct sha1_ctx_s sha1_ctx;
