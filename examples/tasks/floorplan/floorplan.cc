@@ -65,8 +65,7 @@ struct cell {
   int   next;
 };
 
-typedef std::shared_ptr<cell> cell_ptr;
-//~ typedef ucl::counted_array<cell> cell_ptr;
+using cell_ptr = std::shared_ptr<cell[]>;
 
 static cell*             gcells;
 static std::atomic<int>  MIN_AREA;

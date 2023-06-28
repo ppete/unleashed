@@ -14,7 +14,7 @@ COMP:=$(notdir $(CXX))
 ## output directory
 
 ifeq ($(COMPDIR),)
-  THEHOST:=$(shell hostname | sed -e s/[0-9]*//g)
+  THEHOST:=$(shell hostname -s | sed -e s/[0-9]*//g)
   COMPDIR:=$(UCL_HOME)/examples/tasks/tmp/$(THEHOST)
   dummy := $(shell mkdir -p $(COMPDIR))
   $(info *** COMPDIR set to $(COMPDIR))
