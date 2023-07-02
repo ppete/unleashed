@@ -71,8 +71,7 @@ bool validate_array(RandomAccessIterator aa, RandomAccessIterator zz, Comparator
 }
 
 
-
-#if OMP_VERSION
+#if OMP_VERSION || SEQ_VERSION
 
 template <class RandomAccessIterator, class Comparator>
 void

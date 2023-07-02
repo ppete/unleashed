@@ -292,7 +292,7 @@ static
 result_type add_cell_task(Pool& p, floorplan_task task)
 {
   /* for each possible shape */
-  for (int i = 0; i < task.CELLS.get()[task.id].n; i++)
+  for (int i = 0; i < task.CELLS[task.id].n; i++)
   {
     /* compute all possible locations for nw corner */
     coor NWS[DMAX];

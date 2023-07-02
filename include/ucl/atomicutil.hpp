@@ -8,11 +8,10 @@
 
 #include <atomic>
 #include <cassert>
+#include <new>
 
 #ifndef CACHELINESZ
-  #if __cplusplus >= 201703L
-    #include <new>
-
+  #if __cpp_lib_hardware_interference_size
     #define CACHELINESZ (std::hardware_destructive_interference_size)
   #elif defined(_ARCH_PPC64)
     #define CACHELINESZ 128
