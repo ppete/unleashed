@@ -4,16 +4,17 @@
 
 #include <sstream>
 
-#if OPENMP_ENABLED
 #if OMP_VERSION
 #include <omp.h>
+
+//~ #include "omp-continue.hpp"
+#include "ucl/task-continue.hpp"
 #endif /* OMP_VERSION */
 
 #if WOMP_VERSION
 // close to the original version in the Barcelona OpenMP Testing Suite (BOTS).
 #include <omp.h>
 #endif /* WOMP_VERSION */
-#endif /* OPENMP_ENABLED */
 
 #if TBB_VERSION
 #include <tbb/task_scheduler_init.h>
@@ -44,18 +45,9 @@
 #if UCL_VERSION
   #define UCL_RUNTIME_DATA 0
 
-  // NOTE: include archmodel.hpp and typedef arch_model to target system
-  //       to make number of work-stealing attempts sensitive to
-  //       thief-victim cache hierarchy. Mileage varies depending on
-  //       benchmark.
-  //~ #include "ucl/archmodel.hpp"
-
-  //~ typedef ucl::power_arch<2, 22, 4> arch_model; // power9 dual socket (lassen)
-  //~ typedef ucl::power_arch<2, 10, 8> arch_model; // power8 dual socket
-  //~ typedef ucl::intel_arch<2, 18, 2> arch_model; // intel dual socket
-  //~ typedef ucl::intel_arch<2, 24, 2> arch_model; // intel dual socket
   #include "ucl/task.hpp"
   #include "ucl/task-pool-x.hpp"
+  #include "ucl/task-continue.hpp"
 #endif /* UCL_VERSION */
 
 #ifndef NUMTHREADS

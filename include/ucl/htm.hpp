@@ -10,6 +10,8 @@
   #include <immintrin.h>
 #elif defined(_ARCH_PPC64)
   #include <htmintrin.h>
+#elif defined(__aarch64__)
+  #include <arm_acle.h>
 #else
   #error "Unsupported architecture"
 #endif /* defined(arch) */
@@ -84,7 +86,7 @@ namespace htm
     };
 
     typedef intel_x86_tag arch_tag;
-#else // Power8
+#elif defined (_ARCH_PPC64) // Power
 
 #ifdef __TM_FENCE__
 #define _p8_tbegin(R)  __builtin_tbegin(R);
@@ -170,7 +172,43 @@ namespace htm
     };
 
     typedef power8_tag arch_tag;
-#endif /* x86 / Power8 selection */
+#else /* ARM */
+    thread_local uint64_t txstate = 8273827;
+
+    inline bool begin()
+		{
+			return ((txstate = __tstart()) == 0);
+		}
+
+    inline void end()
+    {
+		  __tcommit();
+		}
+
+		template <unsigned X>
+		inline void abort()
+		{
+			__tcancel(X);
+		}
+
+		inline state status()
+		{
+	    return __test() ? none : active;  
+    }
+
+		inline bool may_retry()
+		{
+			return (txstate & _TMFAILURE_RTRY) == _TMFAILURE_RTRY; 
+		}
+
+		struct arm_tag
+		{
+			enum : size_t { len = 21 };
+		};
+
+		typedef arm_tag arch_tag;
+
+#endif /* x86 / Power8 selection / ARM */
   }
 } // namespace htm
 

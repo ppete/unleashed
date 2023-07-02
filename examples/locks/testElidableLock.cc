@@ -54,7 +54,7 @@ static default_lock lock;
 static
 void test(size_t& counter, size_t retries)
 {
-  auto guard = ucl::elide_guard(retries, lock);
+  const auto& guard = ucl::elide_guard(retries, lock);
 
   ++counter;
 }

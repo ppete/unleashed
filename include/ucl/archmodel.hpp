@@ -33,7 +33,7 @@ namespace ucl
     {
       size_t hw = std::thread::hardware_concurrency();
 
-      return hw ? hw:128;  /* artificial limit */
+      return hw ? hw:168;  /* artificial limit */
     }
   };
 

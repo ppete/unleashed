@@ -164,10 +164,17 @@
 #ifndef _UCL_TASK_HPP
 #define _UCL_TASK_HPP 1
 
+#define _GNU_SOURCE 1
+
 #include <algorithm>
 #include <thread>
 #include <cassert>
 #include <functional>
+
+#if UCL_RUNTIME_DATA
+#include <sys/time.h>
+#include <sys/resource.h>
+#endif /* UCL_RUNTIME_DATA */
 
 #include "ucl/atomicutil.hpp"
 #include "ucl/pmemory.hpp"
@@ -216,12 +223,53 @@ namespace ucl
   typedef size_t nat_t;
 
   /// constant for default block-size (number of elements) in the task pool.
-  static const nat_t DEFAULT_BLOCK_SIZE = 1024;
+  static constexpr nat_t DEFAULT_BLOCK_SIZE = 1024;
 
 #if UCL_RUNTIME_DATA
+  struct ucl_runtime_data
+  {
+    nat_t minor_page_faults = 0;
+    
+    ucl_runtime_data& 
+    operator+=(const ucl_runtime_data& other)
+    {
+      this->minor_page_faults += other.minor_page_faults;
+      return *this;
+    }
+  };
+  
+  std::ostream& operator<<(std::ostream& os, ucl_runtime_data data)
+  {
+    return os << data.minor_page_faults;
+  }
+
+  thread_local ucl_runtime_data tk_enq_data;
+  thread_local ucl_runtime_data tk_deq_steal_data;
+  thread_local ucl_runtime_data tk_deq_data;
+  thread_local ucl_runtime_data tk_deq_collect_data;
+
   thread_local nat_t task_steals      = 0;
   thread_local nat_t task_steal_tries = 0;
   thread_local nat_t task_steal_skips = 0;
+  
+  void ucl_rt_begin(ucl_runtime_data& rec)
+  {
+    rusage usage;
+    
+    getrusage(RUSAGE_THREAD, &usage);
+    
+    rec.minor_page_faults = usage.ru_minflt;
+  }
+  
+  void ucl_rt_end(ucl_runtime_data& collect, const ucl_runtime_data& rec)
+  {
+    rusage usage;
+    
+    getrusage(RUSAGE_THREAD, &usage);
+    
+    collect.minor_page_faults += usage.ru_minflt;
+    collect.minor_page_faults -= rec.minor_page_faults;
+  }
 #endif /* UCL_RUNTIME_DATA */
 
   /// \private
@@ -256,7 +304,7 @@ namespace ucl
     typedef ucl::aligned_atomic_type<dataQ<value_t>*> next_ptr;
 
     /// number of elements in a block
-    static const nat_t BLK = DEFAULT_BLOCK_SIZE/2;
+    static constexpr nat_t BLK = DEFAULT_BLOCK_SIZE/2;
 
     data_ptr   hd;         ///< block internal head
     data_ptr   tl;         ///< block internal tail
@@ -358,9 +406,10 @@ namespace ucl
 
       for (;;)
       {
-        if (head == space_limit())
+        //~ if (head >= space_limit())
+        if (head >= tail)
         {
-          // \mo consume, b/c we want to see initialized memory
+          // \mo relaxed, intra thread dependency
           dataQ<T>* nxt = next.val.load(std::memory_order_relaxed);
 
           if (nxt == nullptr) return nullptr;
@@ -368,9 +417,28 @@ namespace ucl
           return nxt->deq(rawmem);
         }
 
-        assert(head < space_limit());
-        if (head >= tail) return nullptr;
-
+        //~ assert(head < space_limit());
+        //~ if (head >= tail) return nullptr;
+/*        
+        bool succ = false;
+        
+        if (tail == space_limit())
+        {
+          head = hd.val.fetch_add(1, std::memory_order_relaxed);
+          succ = head < space_limit();
+        }
+        else
+        {
+          succ = hd.val.compare_exchange_weak(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed);
+        }
+        
+        if (succ)
+        {
+          new (rawmem) value_t (std::move(*head));
+          head->~value_t();
+          return this;
+        }
+*/
         // \mo relaxed (succ) since the data is never rewritten
         // \mo relaxed (fail) b/c nothing happened
         if (hd.val.compare_exchange_weak(head, head+1, std::memory_order_relaxed, std::memory_order_relaxed))
@@ -409,7 +477,8 @@ namespace ucl
       // give up under high contention
       while (attempts > 0)
       {
-        if (head == space_limit())
+        //~ if (head == space_limit())
+        if (head >= tail)
         {
           // \mo consume, b/c we want to see initialized memory
           dataQ<T>* nxt = alloc.template pin<std::memory_order_consume>(next.val);
@@ -424,8 +493,8 @@ namespace ucl
           //~ return (nxt != nullptr && nxt->deq_steal(rawmem, tries, alloc));
         }
 
-        assert(head < space_limit());
-        if (head >= tail) return false;
+        //~ assert(head < space_limit());
+        //~ if (head >= tail) return false;
 
         // \mo relaxed (succ) since the data is never rewritten
         // \mo relaxed (fail) b/c nothing happened
@@ -582,6 +651,12 @@ namespace ucl
         // all blocks that have become empty can be freed
         if (curr != actl)
         {
+#if UCL_RUNTIME_DATA     
+          ucl_runtime_data before;
+      
+          ucl_rt_begin(before); 
+#endif /* UCL_RUNTIME_DATA */     
+
           // \mo release to make content of new head available (needed?)
           allocator_type alloc = get_allocator();
           dataQ<T>*      limit = actl ? actl : tail;
@@ -605,6 +680,10 @@ namespace ucl
 
           // update available task counter
           numtasks.val.store(tasks_made - tasks_done, std::memory_order_relaxed);
+
+#if UCL_RUNTIME_DATA     
+          ucl_rt_end(tk_deq_collect_data, before); 
+#endif /* UCL_RUNTIME_DATA */     
         }
 
         return actl != nullptr;
@@ -675,6 +754,11 @@ namespace ucl
     nat_t task_steals      = 0;
     nat_t task_steal_tries = 0;
     nat_t task_steal_skips = 0;
+    
+    ucl_runtime_data task_enq_data;
+    ucl_runtime_data task_deq_data;
+    ucl_runtime_data task_deq_steal_data;
+    ucl_runtime_data task_deq_collect_data;
 #endif /* UCL_RUNTIME_DATA */
 
     active_tracker()
@@ -699,26 +783,25 @@ namespace ucl
     typedef active_tracker<SPMCBag>                      tasq;
     typedef typename SPMCBag::value_type                 value_type;
     typedef typename SPMCBag::allocator_type             allocator_type;
-    typedef int_fast32_t                                 thread_cnt_t;
     typedef int_fast8_t                                  steal_try_cnt_t;
 
     /// maximum number of threads
-    const thread_cnt_t                                   MAXTQ;
+    const nat_t                                          MAXTQ;
 
     /// the allocator/memory manager
     allocator_type                                       nodealloc;
 
     /// counts active threads; when count reaches 0 all task have been handled
-    ucl::aligned_atomic_type<thread_cnt_t, CACHELINESZ> active;
+    ucl::aligned_atomic_type<nat_t, CACHELINESZ>         active;
 
     /// task specific queue handles
-    ucl::aligned_atomic_type<tasq*, CACHELINESZ> taskq[256]; // \todo remove magic constant
+    ucl::aligned_atomic_type<tasq*, CACHELINESZ>         taskq[256]; // \todo remove magic constant
 
     /// thread id within pool
-    static thread_local thread_cnt_t                     idx;
+    static thread_local nat_t                            idx;
 
     /// victim (thread id) where the last task has been stolen
-    static thread_local thread_cnt_t                     last_victim;
+    static thread_local nat_t                            last_victim;
 
     /// this task queue
     static thread_local tasq*                            tq_loc;
@@ -730,7 +813,7 @@ namespace ucl
     /// \param numthreads number of worker threads (and task queues)
     /// \param alloc      memory manager
     explicit
-    perthread_pool(thread_cnt_t numthreads, const allocator_type& alloc = allocator_type())
+    perthread_pool(nat_t numthreads, const allocator_type& alloc = allocator_type())
     : MAXTQ(numthreads), nodealloc(alloc), active(numthreads)
     {
       assert(tq_loc == nullptr);
@@ -744,7 +827,7 @@ namespace ucl
       taskq[0].val.store(tq_loc, std::memory_order_relaxed);
 
       // set tasqs to null
-      for (thread_cnt_t i = 1; i < MAXTQ; ++i)
+      for (nat_t i = 1; i < MAXTQ; ++i)
       {
         // \mo relaxed, b/c the pool is constructed before we fork
         taskq[i].val.store(nullptr, std::memory_order_relaxed);
@@ -756,7 +839,7 @@ namespace ucl
     /// \param work       first task
     /// \param alloc      memory manager
     explicit
-    perthread_pool(thread_cnt_t numthreads, value_type work, const allocator_type& alloc = allocator_type())
+    perthread_pool(nat_t numthreads, value_type work, const allocator_type& alloc = allocator_type())
     : perthread_pool(numthreads, alloc)
     {
       enq(std::move(work));
@@ -787,7 +870,7 @@ namespace ucl
     /// \param parent pool id of parent thread
     /// \param self   pool id of this thread
     /// \note pool ids are generated by the task system
-    void init(thread_cnt_t parent, thread_cnt_t self)
+    void init(nat_t parent, nat_t self)
     {
       if (self == 0) return;
 
@@ -804,13 +887,33 @@ namespace ucl
     /// copy-enqueues a new task
     void enq(const value_type& el)
     {
+#if UCL_RUNTIME_DATA     
+      ucl_runtime_data before;
+        
+      ucl_rt_begin(before); 
+#endif /* UCL_RUNTIME_DATA */     
+      
       tq_loc->enq(el);
+
+#if UCL_RUNTIME_DATA     
+      ucl_rt_end(tk_enq_data, before); 
+#endif /* UCL_RUNTIME_DATA */     
     }
 
     /// move-enqueues a new task
     void enq(value_type&& el)
     {
+#if UCL_RUNTIME_DATA     
+      ucl_runtime_data before;
+        
+      ucl_rt_begin(before); 
+#endif /* UCL_RUNTIME_DATA */     
+
       tq_loc->enq(std::move(el));
+
+#if UCL_RUNTIME_DATA     
+      ucl_rt_end(tk_enq_data, before); 
+#endif /* UCL_RUNTIME_DATA */
     }
 
     /// called before a new task is scheduled
@@ -862,11 +965,34 @@ namespace ucl
     /// \result  true if a task was dequeued, false otherwise
     bool deq(void* rawmem)
     {
+#if UCL_RUNTIME_DATA     
+      ucl_runtime_data before;
+      
+      ucl_rt_begin(before); 
+#endif /* UCL_RUNTIME_DATA */     
+
       // try to dequeue from the local queue first
-      if (tq_loc->deq(rawmem)) return true;
+      if (tq_loc->deq(rawmem)) 
+      { 
+#if UCL_RUNTIME_DATA     
+        ucl_rt_end(tk_deq_data, before); 
+#endif /* UCL_RUNTIME_DATA */     
+        
+        return true;
+      }
+
+#if UCL_RUNTIME_DATA     
+      ucl_rt_end(tk_deq_data, before); 
+#endif /* UCL_RUNTIME_DATA */     
 
       // no more tasks in the local queue
       //   -> steal a task from somewhere else
+#if UCL_RUNTIME_DATA     
+      ucl_runtime_data before_steal;
+      
+      ucl_rt_begin(before_steal); 
+#endif /* UCL_RUNTIME_DATA */     
+      
 
 #if INFORMED_STEALING
       // estimate average number of tasks from a sample
@@ -877,14 +1003,15 @@ namespace ucl
       nat_t            tasks_avail[SAMPLESIZE];
 
       {
-        thread_cnt_t   tasks_i = SAMPLESIZE;
-        thread_cnt_t   probe[SAMPLESIZE] = { last_victim, last_victim+(idx+1), idx+(MAXTQ-1), idx+1 };
+        nat_t          tasks_i = SAMPLESIZE;
+        // nat_t          probe[SAMPLESIZE] = { last_victim, last_victim+1, idx+(MAXTQ-1), idx+1 };
+        nat_t          probe[SAMPLESIZE] = { last_victim, last_victim, idx^2, idx^2 };
         nat_t          max     = 0;
 
         while (tasks_i)
         {
           --tasks_i;
-          thread_cnt_t  tid = probe[tasks_i];
+          nat_t tid = probe[tasks_i];
           while (tid >= MAXTQ) { tid -= MAXTQ; }
 
           const tasq* victim = taskq[tid].val.load(std::memory_order_consume);
@@ -908,27 +1035,27 @@ namespace ucl
       {
         typedef typename allocator_type::pinguard PinGuard;
 
-        allocator_type     alloc = get_allocator();
-        PinGuard           pinguard(alloc, SPMCBag::SZPINWALL);
+        allocator_type alloc = get_allocator();
+        PinGuard       pinguard(alloc, SPMCBag::SZPINWALL);
 
         // work stealing
-        thread_cnt_t      thrid   = last_victim;
+        nat_t          thrid   = last_victim;
 
 #if INFORMED_STEALING
-        thread_cnt_t      tasks_i = 0;
+        nat_t          tasks_i = 0;
 #endif /* INFORMED_STEALING */
 
         do
         {
           // \mo consume, b/c we follow the pointer
-          tasq*          victim = taskq[thrid].val.load(std::memory_order_consume);
+          tasq*         victim = taskq[thrid].val.load(std::memory_order_consume);
 
           if (victim)
           {
             int_fast8_t  tries = arch_model::num_tries(idx, thrid);
 
 #if INFORMED_STEALING
-            nat_t        avail = victim->estimate_size();
+            nat_t       avail = victim->estimate_size();
 
             if (avail * (SAMPLESIZE/2) > tasks_sum)
             {
@@ -947,15 +1074,17 @@ namespace ucl
 
             if (tries)
             {
-              if (bool res = victim->deq_steal(rawmem, tries))
+              if (victim->deq_steal(rawmem, tries))
               {
                 assert(idx != thrid);
 #if UCL_RUNTIME_DATA
                 ++task_steals;
+                ucl_rt_end(tk_deq_steal_data, before_steal); 
 #endif /* UCL_RUNTIME_DATA */
 
                 tq_rem      = victim;
                 last_victim = thrid;
+                
                 return true;
               }
             }
@@ -971,6 +1100,10 @@ namespace ucl
       }
 
       last_victim = 0;
+#if UCL_RUNTIME_DATA
+      ++task_steals;
+      ucl_rt_end(tk_deq_steal_data, before_steal); 
+#endif /* UCL_RUNTIME_DATA */
       return false;
     }
 
@@ -979,9 +1112,13 @@ namespace ucl
     {
       tq_loc->qshutdown(isMainThread);
 #if UCL_RUNTIME_DATA
-      tq_loc->task_steals      = ucl::task_steals;
-      tq_loc->task_steal_tries = ucl::task_steal_tries;
-      tq_loc->task_steal_skips = ucl::task_steal_skips;
+      tq_loc->task_steals           = ucl::task_steals;
+      tq_loc->task_steal_tries      = ucl::task_steal_tries;
+      tq_loc->task_steal_skips      = ucl::task_steal_skips;
+      tq_loc->task_enq_data         = ucl::tk_enq_data;
+      tq_loc->task_deq_data         = ucl::tk_deq_data; 
+      tq_loc->task_deq_steal_data   = ucl::tk_deq_steal_data;
+      tq_loc->task_deq_collect_data = ucl::tk_deq_collect_data; 
 #else
       delete tq_loc;
 #endif /* UCL_RUNTIME_DATA */
@@ -990,11 +1127,11 @@ namespace ucl
 
   template <class Q>
   thread_local
-  typename perthread_pool<Q>::thread_cnt_t perthread_pool<Q>::idx = 0;
+  typename ucl::nat_t perthread_pool<Q>::idx = 0;
 
   template <class Q>
   thread_local
-  typename perthread_pool<Q>::thread_cnt_t perthread_pool<Q>::last_victim = 0;
+  typename ucl::nat_t perthread_pool<Q>::last_victim = 0;
 
   template <class Q>
   thread_local
@@ -1009,13 +1146,14 @@ namespace ucl
   template <class P>
   void threadexit(std::atomic<nat_t>& signal, std::atomic<nat_t>& coordinator, P& taskpool)
   {
-    const nat_t eofwork_barrier = coordinator.load(std::memory_order_relaxed) + 1;
+    // read current barrier value
+    const nat_t eofwork_barrier_value = coordinator.load(std::memory_order_relaxed);
     
     // notify parent about finished computation
     signal.store(1, std::memory_order_release);
 
     // wait until all threads are confirmed to be in quiesence state
-    while (eofwork_barrier != coordinator.load(std::memory_order_acquire));
+    while (eofwork_barrier_value == coordinator.load(std::memory_order_acquire));
 
     // release resources
     taskpool.qshutdown(false);
@@ -1048,7 +1186,7 @@ namespace ucl
     task_type* const work = reinterpret_cast<task_type*>(&work_space);
 
     // initialize local reduction variable
-    R                val = R();
+    R                val = R{};
 
     // run until no more tasks can be found
     do
@@ -1223,11 +1361,13 @@ namespace ucl
       total_task_steal_tries += tsk.task_steal_tries;
       total_task_steal_skips += tsk.task_steal_skips;
 
-      os << "* t" << i
-         << "   " << tsk.tasks_done
-         << " (" << tsk.stolen << "/" << tsk.task_steals
-         << "/" << tsk.task_steal_tries << "/" << tsk.task_steal_skips
-         << ")"
+      os << "t " << i
+         << "  " << tsk.tasks_done
+         << " (" << tsk.stolen << ")"
+         << " [" << tsk.task_steals << "/" << tsk.task_steal_tries << "/" << tsk.task_steal_skips << "]"
+         << " <" << tsk.task_enq_data << "/" << tsk.task_deq_data 
+         << "/"  << tsk.task_deq_collect_data << "/" << tsk.task_deq_steal_data
+         << ">"  
          << std::endl;
     }
 
@@ -1252,9 +1392,9 @@ namespace ucl
   /// \param pool a task-pool
   template <class TaskFunctor, class TaskPool>
   auto execute_pool(TaskFunctor fun, TaskPool& pool)
-       -> decltype( fun(pool, std::move(typename TaskPool::value_type())) )
+       -> decltype( fun(pool, std::declval<typename TaskPool::value_type>()) )
   {
-    typedef decltype( fun(pool, std::move(typename TaskPool::value_type())) ) R;
+    using R = decltype( fun(pool, std::declval<typename TaskPool::value_type>()) );
 
     static std::atomic<nat_t> coordinator(0);
     
@@ -1315,13 +1455,12 @@ namespace ucl
   template <class F, class T, class UclAlloc = lockfree::epoch_manager<T, std::allocator> >
   static inline
   auto execute_tasks(nat_t numthreads, F fun, T&& task)
-       -> decltype(execute_pool(fun, *new fifo_queue_pool<T>(numthreads, std::move(task))))
+       -> decltype(execute_pool(fun, *new fifo_queue_pool<T>(numthreads, std::forward<T>(task))))
   {
-    fifo_queue_pool<T> pool(numthreads, std::move(task));
+    fifo_queue_pool<T> pool(numthreads, std::forward<T>(task));
 
     return execute_pool(fun, pool);
   }
-
 
 
 #if OBSOLETE

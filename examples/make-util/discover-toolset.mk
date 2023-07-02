@@ -171,10 +171,13 @@ endif
 ifeq ($(TOOLSET),)
   ifneq (,$(findstring PGI,$(COMPILERVERSION)))
     export TOOLSET    := PGI
-    export OPTFLAG    ?= -O2
+    export OPTFLAG    ?= -O3
+    export DBGOTPFLAG ?= -O0
     export CPUARCH    ?= -ta=multicore
     export OMPFLAG    ?= -mp
-    $(error PGI is currently not supported)
+    export WARNFLAG   ?= -Wall -pedantic
+    export THREADFLAG ?= 
+    $(info PGI may not be fully supported)
   endif
 endif
 

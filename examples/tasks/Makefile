@@ -11,7 +11,9 @@ default:
 	cd dot-product; $(MAKE)
 	cd fib; $(MAKE)
 	cd floorplan; $(MAKE)
+	cd health; $(MAKE)
 	cd knapsack; $(MAKE)
+	cd msort; $(MAKE)
 	cd nqueens-0; $(MAKE)
 	cd qsort; $(MAKE)
 	cd tsp; $(MAKE)
@@ -22,9 +24,11 @@ clean:
 	cd dot-product; $(MAKE)  clean
 	cd fib; $(MAKE)  clean
 	cd floorplan; $(MAKE)  clean
+	cd health; $(MAKE)  clean
 	cd knapsack; $(MAKE)  clean
 	cd msort; $(MAKE)  clean
 	cd nqueens-0; $(MAKE)  clean
 	cd pi; $(MAKE)  clean
+	cd qsort; $(MAKE)  clean
 	cd tsp; $(MAKE)  clean
 	cd uts; $(MAKE)  clean

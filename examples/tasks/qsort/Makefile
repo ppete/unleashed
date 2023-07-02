@@ -2,9 +2,9 @@
 include ../../make-util/discover-toolset.mk
 include ../../make-util/discover-task-models.mk
 
-SOURCES=qsort.cc
+QTHREADS_ENABLED:=0
+SEQ_ENABLED:=1
 
-SEQ_ENABLED=1
-QTHREADS_ENABLED=0
+SOURCES=qsort.cc
 
 include ../common.mk

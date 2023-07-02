@@ -33,6 +33,8 @@
  and/or fitness for purpose.
  ---------------------------------------------------------------------------
  Issue 20/10/2006
+
+PP: 27/06/23 Added test for __sun.
 */
 
 #ifndef BRG_ENDIAN_H
