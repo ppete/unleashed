@@ -126,7 +126,7 @@ void merge0( RandomAccessIterator aa,
 }
 
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 template <class RandomAccessIterator, class Comparator>
 void mgsort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp)

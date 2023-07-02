@@ -37,15 +37,11 @@
  */
 
 #include <iostream>
-//~ #include <iomanip>
 #include <chrono>
-//~ #include <cassert>
-//~ #include <cstdlib>
-//~ #include <cmath>
+#include <cassert>
 #include <thread>
 #include <list>
 #include <limits>
-#include <string>
 
 #include "../common/common-includes.hpp"
 
@@ -182,7 +178,7 @@ bool board::valid() const
 }
 
 
-#if OMP_VERSION
+#if OMP_VERSION || SEQ_VERSION
 
 size_t partialresult;
 #pragma omp threadprivate(partialresult)

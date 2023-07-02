@@ -228,7 +228,7 @@ struct integration_task
 };
 
 
-#if OMP_VERSION
+#if OMP_VERSION 
 
 pi_type partialresult;
 #pragma omp threadprivate(partialresult)
@@ -293,7 +293,7 @@ auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_resul
 }
 #endif /* OMP_VERSION */
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 pi_type partialresult;
 #pragma omp threadprivate(partialresult)

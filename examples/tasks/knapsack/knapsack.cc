@@ -310,7 +310,7 @@ auto knapsack (item* e, int c, int n, size_t numthreads) -> int
 
 #endif /* OMP_VERSION */
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 /*
  * return the optimal solution for n items (first is e) and

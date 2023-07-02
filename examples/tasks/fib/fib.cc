@@ -106,7 +106,7 @@ struct histogram
 #endif /* WITH_HISTOGRAM */
 
 
-#if OMP_VERSION
+#if OMP_VERSION || SEQ_VERSION
 
 //~ histogram<long double> hist(0.0, 1.0, 100);
 

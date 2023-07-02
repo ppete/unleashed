@@ -193,7 +193,7 @@ int uts_numChildren(Node *parent)
  * Recursive depth-first implementation                    *
  ***********************************************************/
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 count_t parTreeSearch(int depth, Node *parent, int numChildren)
 {

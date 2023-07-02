@@ -459,7 +459,7 @@ void put_in_hosp(struct Hosp *hosp, struct Patient *patient)
    }
 }
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 /**********************************************************************/
 void sim_village_par(struct Village *village)

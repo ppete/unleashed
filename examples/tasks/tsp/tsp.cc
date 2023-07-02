@@ -609,7 +609,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 
 #endif /* OMP_VERSION */
 
-#if WOMP_VERSION
+#if WOMP_VERSION || SEQ_VERSION
 
 template <class T>
 auto tsp_adaptive(T task) -> void // std::pair<D, size_t>

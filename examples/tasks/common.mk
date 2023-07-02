@@ -51,12 +51,6 @@ endif
 
 ifeq ($(SEQ_ENABLED),1)
   TARGETS += $(COMPDIR)/$(CODE)-seq-$(COMP).bin
-
-  ifeq ($(WOMP_ENABLED),1)
-    OPENMPV:=-DWOMP_VERSION=1
-  else
-    OPENMPV:=-DOMP_VERSION=1
-  endif
 endif
 
 
@@ -67,7 +61,7 @@ default: $(TARGETS)
 CXXFLAGS = $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG)
 
 $(COMPDIR)/$(CODE)-seq-$(COMP).bin: $(SOURCES)
-	$(CXX) $(CXXFLAGS) $(OPENMPV) -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
+	$(CXX) $(CXXFLAGS) -DSEQ_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
 
 $(COMPDIR)/$(CODE)-ucl-$(COMP).bin: $(SOURCES) $(UCL_HOME)/include/ucl/task.hpp $(UCL_HOME)/include/ucl/task-pool-x.hpp
 	$(CXX) $(CXXFLAGS) $(THREADFLAG) $(UCLFLAG) -DUCL_VERSION=1 -I$(UCL_HOME)/include $(SOURCES) $(LINKATOMIC) -o $@
