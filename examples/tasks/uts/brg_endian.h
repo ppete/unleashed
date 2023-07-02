@@ -50,7 +50,7 @@ PP: 27/06/23 Added test for __sun.
       defined( __CYGWIN32__ ) || defined( __DJGPP__ ) || defined( __osf__ )
 #  include <machine/endian.h>
 #elif defined( __linux__ ) || defined( __GNUC__ ) || defined( __GNU_LIBRARY__ )
-#  if !defined( __MINGW32__ ) && !defined( __sun )
+#  if !defined( __MINGW32__ ) && !defined( __sun ) && !defined(_AIX)
 #    include <endian.h>
 #    if !defined( __BEOS__ )
 #      include <byteswap.h>

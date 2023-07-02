@@ -53,7 +53,6 @@
 #include "../common/common-includes.hpp"
 
 #include "ucl/atomicutil.hpp"
-#include "ucl/task-pool-x.hpp"
 
 #define PRINT_STATS 0
 #define WITH_HISTOGRAM 0

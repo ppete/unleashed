@@ -37,7 +37,7 @@ namespace ucl
     }
   };
 
-#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined __sun && !defined __APPLE__
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__ && !defined __sun && !defined __APPLE__ && !defined _AIX
   template <size_t NSOCKETS, size_t NCORES, size_t NTHREADS>
   struct ascending
   {
