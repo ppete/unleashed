@@ -195,7 +195,7 @@ void allocate_village(Village** capital, Village* back,Village* next, int level,
 {
   if (level == 0) { *capital = NULL; return; }
 
-  int personnel = (int) pow(2, level);
+  int personnel = (int) std::pow(int{2}, level);
   int population = personnel * sim_population_ratio;
 
   /* Allocate Village + Hospital */
