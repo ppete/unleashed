@@ -230,9 +230,9 @@ void mgsort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp)
 
 template <class RandomAccessIterator, class Comparator>
 void
-mergesort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
+mergesort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t /*numthreads*/)
 {
-  set_cilk_workers(numthreads);
+  // set_cilk_workers(numthreads);
 
   mgsort(aa, zz, comp);
 }

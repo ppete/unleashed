@@ -815,9 +815,9 @@ void add_cell_task(floorplan_task task)
 
 
 static
-void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
+void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t /*numthreads*/)
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
   //   cilk::reducer_opadd<size_t> sum;
 
   add_cell_task(floorplan_task(id, FOOTPRINT, BOARD, CELLS));

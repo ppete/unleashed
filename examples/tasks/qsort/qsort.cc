@@ -210,9 +210,9 @@ qksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp)
 
 template <class RandomAccessIterator, class Comparator>
 void
-quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
+quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t /*numthreads*/)
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
 
   qksort(aa, zz, comp);
 }

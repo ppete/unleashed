@@ -52,7 +52,7 @@
 #define PROBLEM_SIZE (100000000)
 #endif /* PROBLEM_SIZE */
 
-typedef long double product_type;
+using product_type = long double ;
 
 template <class D>
 struct dp_result
@@ -235,12 +235,25 @@ auto dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len) -> D
 
 #if CILK_VERSION
 
+void sum_init(void* sum) { *static_cast<product_type*>(sum) = 0.0; }
+void sum_plus(void* lhs, void* rhs) { *static_cast<product_type*>(lhs) += *static_cast<product_type*>(rhs); }
+
+product_type cilk_reducer(sum_init, sum_plus) product(0);
+product_type cilk_reducer(sum_init, sum_plus) lhs_len_sq(0);
+product_type cilk_reducer(sum_init, sum_plus) rhs_len_sq(0);
+
+void product_add(product_type addend) { product += addend; }
+product_type product_value() { return product; }
+
+void lhs_len_sq_add(product_type addend) { lhs_len_sq += addend; }
+product_type lhs_len_sq_value() { return lhs_len_sq; }
+
+void rhs_len_sq_add(product_type addend) { rhs_len_sq += addend; }
+product_type rhs_len_sq_value() { return rhs_len_sq; }
+
+
 template <class D>
-void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
-                 cilk::reducer_opadd<D>& product,
-                 cilk::reducer_opadd<D>& lhs_len_sq,
-                 cilk::reducer_opadd<D>& rhs_len_sq
-               )
+void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi )
 {
   while (lo + 1 < hi)
   {
@@ -248,30 +261,28 @@ void dp_compute( D* lhs, D* rhs, size_t lo, size_t hi,
 
     if (mid < hi)
     {
-      cilk_spawn dp_compute<D>(lhs, rhs, mid, hi, product, lhs_len_sq, rhs_len_sq);
+      cilk_spawn dp_compute<D>(lhs, rhs, mid, hi);
+      //~ cilk_spawn dp_compute<D>(lhs, rhs, mid, hi, product, lhs_len_sq, rhs_len_sq);
     }
 
     hi = mid;
   }
 
-  product     += lhs[lo] * rhs[lo];
-  lhs_len_sq  += lhs[lo] * lhs[lo];
-  rhs_len_sq  += rhs[lo] * rhs[lo];
+  product_add   (lhs[lo] * rhs[lo]);
+  lhs_len_sq_add(lhs[lo] * lhs[lo]);
+  rhs_len_sq_add(rhs[lo] * rhs[lo]);
 }
 
 
 template <class D>
 auto dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len) -> D
 {
-  set_cilk_workers(numthreads);
+  // set_cilk_workers(numthreads);
 
-  cilk::reducer_opadd<D> product;
-  cilk::reducer_opadd<D> lhs_len_sq;
-  cilk::reducer_opadd<D> rhs_len_sq;
+  dp_compute(lhs, rhs, 0, len);
+  // dp_compute(lhs, rhs, 0, len, product, lhs_len_sq, rhs_len_sq);
 
-  dp_compute(lhs, rhs, 0, len, product, lhs_len_sq, rhs_len_sq);
-
-  return product.get_value() / (std::sqrt(lhs_len_sq.get_value()) * std::sqrt(rhs_len_sq.get_value()));
+  return product_value() / (std::sqrt(lhs_len_sq_value()) * std::sqrt(rhs_len_sq_value()));
 }
 
 #endif /* CILK_VERSION */

@@ -749,10 +749,10 @@ void tsp_adaptive(cilk_task task)
 }
 
 
-void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
+void tsp_launch(int** graph, BranchSet* branch, bool left, size_t /*numthreads*/)
 {
   min_path.store(std::numeric_limits<result_t>::max());
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
 
   tsp_adaptive(cilk_task(graph, branch, left));
 

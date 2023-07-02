@@ -62,7 +62,7 @@
 #endif /* PROBLEM_SIZE */
 
 
-typedef long double                pi_type;
+using pi_type = long double;
 
 struct counting_task_t
 {
@@ -92,17 +92,21 @@ struct counting_task_t
 typedef pi_type                    task_result_type;
 //~ typedef counting_task_t            task_result_type;
 
-static inline
+
+namespace
+{
+inline
 pi_type value(counting_task_t t)   { return t.val; }
 
-static inline
+inline
 size_t segments(counting_task_t t) { return t.seg; }
 
-static inline
+inline
 pi_type value(pi_type t)   { return t; }
 
-static inline
+inline
 size_t segments(pi_type)   { return 0; }
+}
 
 
 
@@ -426,12 +430,26 @@ auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_resul
 
 #if CILK_VERSION
 
+void sum_init(void* sum) { *static_cast<pi_type*>(sum) = 0.0; }
+void sum_plus(void* lhs, void* rhs) { *static_cast<pi_type*>(lhs) += *static_cast<pi_type*>(rhs); }
+
+pi_type cilk_reducer(sum_init, sum_plus) sum(0);
+
+void sum_add(pi_type addend)
+{
+  sum += addend;
+}
+
+pi_type sum_result()
+{
+  return sum;
+}
+
 template <class F, class D>
-auto integrate_adaptive( F f, D eps, integration_task<D> task,
-                         cilk::reducer_opadd<task_result_type>& sum
+auto integrate_adaptive( F f, D eps, integration_task<D> task
                        ) -> void
 {
-  typedef integration_task<D> integration_task;
+  using integration_task = integration_task<D>;
 
   D dif;
   D tol;
@@ -449,27 +467,23 @@ auto integrate_adaptive( F f, D eps, integration_task<D> task,
 
     if (dif >= tol)
     {
-      cilk_spawn integrate_adaptive(f, eps, integration_task{task.low, halfstep, a1}, sum);
+      cilk_spawn integrate_adaptive(f, eps, integration_task{task.low, halfstep, a1});
 
       // run on same thread
       task = integration_task{task.low+halfstep, halfstep, a2};
     }
   } while (dif >= tol);
 
-  sum += res;
+  sum_add(res);
 }
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
+auto integrate_adaptive(F f, D lo, D hi, size_t /*numthreads*/, D eps) -> task_result_type
 {
-  set_cilk_workers(numthreads);
+  D       step = hi-lo;
 
-  D                                     step = hi-lo;
-  cilk::reducer_opadd<task_result_type> sum;
-
-  integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)}, sum);
-
-  return sum.get_value();
+  integrate_adaptive(f, eps, integration_task<D>{lo, step, method(f, lo, step, 0)});
+  return sum_result();
 }
 
 #endif /* CILK_VERSION */
@@ -630,7 +644,7 @@ int main(int argc, char** args)
   // executes loop in parallel
   //   and uses a reduction algorithm to combine all pi values that were
   //   computed across threads.
-  task_result_type pi  = integrate_adaptive( pi_formula(),
+  task_result_type pi  = integrate_adaptive( pi_formula{},
                                              pi_type(0),
                                              pi_type(1),
                                              num_threads,

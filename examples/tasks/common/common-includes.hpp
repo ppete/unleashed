@@ -26,8 +26,8 @@
 #if CILK_VERSION
 #include <cstdio>
 #include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
-#include <cilk/cilk_api.h>
+//~ #include <cilk/opadd_reducer.h>
+//~ #include <cilk/cilk_api.h>
 #endif /* CILK_VERSION */
 
 #if QTHREADS_VERSION
@@ -76,6 +76,11 @@ namespace aux
 
 #if CILK_VERSION
 
+#if OBSOLETE_CODE
+
+// OpenCilk does not allow setting number of workers dynamically
+// https://github.com/OpenCilk/opencilk-project/issues/71
+
 static inline
 void set_cilk_workers(int n)
 {
@@ -97,6 +102,8 @@ void cilk_init(int workers, std::string stacksz)
 
   set_cilk_workers(workers);
 }
+
+#endif /* OBSOLETE_CODE */
 
 #endif /* CILK_VERSION */
 

@@ -248,9 +248,9 @@ auto knapsack_par(knapsack_task task) -> void
   }
 }
 
-auto knapsack(item *e, int c, int n, size_t numthreads) -> int
+auto knapsack(item *e, int c, int n, size_t /*numthreads*/) -> int
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
   knapsack_par(knapsack_task{e, c, n, 0});
 
   // cilk::reducer_opadd<size_t> sum;

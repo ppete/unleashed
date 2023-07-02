@@ -84,7 +84,7 @@
 //~ #include "bots.h"
 #include "uts.h"
 
-typedef unsigned long long count_t;
+using count_t = unsigned long long ;
 
 /***********************************************************
  *  Global state                                           *
@@ -353,19 +353,29 @@ count_t parallel_uts (Node* root, size_t numthreads)
 
 #if CILK_VERSION
 
-void
-cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum, Node* children);
+void count_init(void* sum) { *static_cast<count_t*>(sum) = 0.0; }
+void count_plus(void* lhs, void* rhs) { *static_cast<count_t*>(lhs) += *static_cast<count_t*>(rhs); }
+
+count_t cilk_reducer(count_init, count_plus) count(0);
+
 
 void
-par_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum)
+cilk_tree_search(int depth, Node* parent, int numChildren, Node* children);
+//~ cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum, Node* children);
+
+void
+par_tree_search(int depth, Node* parent, int numChildren)
+//~ par_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum)
 {
   Node children[numChildren];
 
-  cilk_tree_search(depth, parent, numChildren, sum, children);
+  cilk_tree_search(depth, parent, numChildren, children);
+  //~ cilk_tree_search(depth, parent, numChildren, sum, children);
 }
 
 void
-cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum, Node* children)
+cilk_tree_search(int depth, Node* parent, int numChildren, Node* children)
+//~ cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<count_t>& sum, Node* children)
 {
   // Recurse on the children
   for (int i = 0; i < numChildren; ++i)
@@ -381,23 +391,25 @@ cilk_tree_search(int depth, Node* parent, int numChildren, cilk::reducer_opadd<c
     }
 
     child->numChildren = uts_numChildren(child);
-    cilk_spawn par_tree_search(depth+1, child, child->numChildren, sum);
+    cilk_spawn par_tree_search(depth+1, child, child->numChildren);
+    //~ cilk_spawn par_tree_search(depth+1, child, child->numChildren, sum);
   }
 
-  sum += 1;
+  count += 1;
 }
 
 
 count_t parallel_uts (Node* root, size_t numthreads)
 {
-  cilk_init(numthreads, "4000000");
+  //~ cilk_init(numthreads, "4000000");
 
-  cilk::reducer_opadd<count_t> sum(0);
+  //~ cilk::reducer_opadd<count_t> sum(0);
 
   root->numChildren = uts_numChildren(root);
-  par_tree_search(0, root, root->numChildren, sum);
+  par_tree_search(0, root, root->numChildren); // , sum);
 
-  return sum.get_value();
+  //~ return sum.get_value();
+  return count;
 }
 #endif /* CILK_VERSION */
 

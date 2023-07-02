@@ -110,6 +110,7 @@ ifeq ($(TOOLSET),)
     export THREADFLAG ?= -pthread
     export WARNFLAG   ?= -Wall -Wextra -pedantic
     export OMPFLAG    ?= -fopenmp
+    export CILKFLAG   ?= -fopencilk
 
     TESTNATIVE := 1
 

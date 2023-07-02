@@ -786,9 +786,9 @@ void sim_village_par(struct Village *village)
 }
 
 /**********************************************************************/
-void sim_village_main_par(Village *top, size_t numthreads)
+void sim_village_main_par(Village *top, size_t /*numthreads*/)
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
 
   for (long i = 0; i < sim_time; i++) sim_village_par(top);
 }
@@ -828,7 +828,8 @@ void read_input_data(const char* filename)
    long int xseed;
 
    if ((fin = fopen(filename, "r")) == NULL) {
-      bots_message("Could not open sequence file (%s)\n", filename);
+      std::cerr << "Could not open sequence file " << filename 
+                << std::endl;
       exit (-1);
    }
 
@@ -856,7 +857,8 @@ void read_input_data(const char* filename)
 
    sim_seed = xseed;
    if ( res == EOF ) {
-      bots_message("Bogus input file (%s)\n", filename);
+      std::cerr << "Bogus input file " << filename 
+                << std::endl;
       exit(-1);
    }
    fclose(fin);

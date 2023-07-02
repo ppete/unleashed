@@ -236,7 +236,7 @@ std::pair<I, size_t> fib_task(size_t numthreads, I num)
 #endif /* UCL_VERSION */
 
 #if CILK_VERSION
-
+/*
 template <class I>
 I compute_fib_nofork(I task)
 {
@@ -251,8 +251,25 @@ I compute_fib_nofork(I task)
 
   return res + task.num;
 }
+*/
 
+// adapted from OpenCilk's website
+// \todo a reducer based version may be faster
+template <class I>
+I compute_fib(I n) 
+{
+  if (n < 2)
+    return n;                   // base case
+    
+  I x, y;
+  cilk_scope {                  // begin lexical scope of parallel region
+    x = cilk_spawn compute_fib(n-1);  // don't wait for function to return
+    y = compute_fib(n-2);             // may run in parallel with spawned function
+  }                             // wait for spawned function if needed
+  return x + y;
+}
 
+/*
 template <class I>
 void compute_fib(I task, cilk::reducer_opadd<I>& sum)
 {
@@ -271,16 +288,18 @@ void compute_fib(I task, cilk::reducer_opadd<I>& sum)
 
   sum += task;
 }
+*/
 
 template <class I>
 std::pair<I, size_t> fib_task(size_t numthreads, I num)
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
 
-  cilk::reducer_opadd<I> sum;
+  //~ cilk::reducer_opadd<I> sum;
 
-  compute_fib<I>(num, sum);
-  return std::make_pair(sum.get_value(), 0);
+  I res = compute_fib<I>(num);
+  //~ I res = sum.get_value();
+  return std::make_pair(res, 0);
 }
 
 #endif /* CILK_VERSION */

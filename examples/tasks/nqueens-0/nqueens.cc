@@ -274,15 +274,20 @@ size_t nqueens_task(size_t numthreads, size_t problem_size)
 
 #if CILK_VERSION
 
-void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
+void count_init(void* sum) { *static_cast<std::size_t*>(sum) = 0.0; }
+void count_plus(void* lhs, void* rhs) { *static_cast<std::size_t*>(lhs) += *static_cast<std::size_t*>(rhs); }
+
+std::size_t cilk_reducer(count_init, count_plus) count(0);
+
+void compute_nqueens(board task)
 {
   for (;;)
   {
     // check if last added queen is valid
-    if (!task.valid()) return res;
+    if (!task.valid()) return;
 
     // if board is full
-    if (task.complete()) return res+1;
+    if (task.complete()) { count += 1; return; }
 
     for (size_t i = task.size()-1; i > 0; --i)
     {
@@ -291,23 +296,23 @@ void compute_nqueens(cilk::reducer_opadd<size_t>& sum, board<N> task)
       newtask.append(i);
 
       if (newtask.rows() <= global_cut_off)
-        cilk_spawn compute_nqueens(sum, newtask);
+        cilk_spawn compute_nqueens(newtask);
       else
-        compute_nqueens(sum, newtask);
+        compute_nqueens(newtask);
     }
 
     task.append(0);
   }
 }
 
-size_t nqueens_task(size_t numthreads, size_t problem_size)
+size_t nqueens_task(size_t /*numthreads*/, size_t problem_size)
 {
-  set_cilk_workers(numthreads);
+  //~ set_cilk_workers(numthreads);
 
-  cilk::reducer_opadd<size_t> sum;
+  //~ cilk::reducer_opadd<size_t> sum;
 
-  compute_nqueens(sum, board{problem_size});
-  return sum.get_value();
+  compute_nqueens(board{problem_size});
+  return count;
 }
 
 #endif /* CILK_VERSION */

@@ -836,7 +836,7 @@ int pairalign(size_t numthreads)
 
    bots_message("Start aligning ");
 
-   set_cilk_workers(numthreads);
+   //~ set_cilk_workers(numthreads);
    distribute(DistributionTask{0, nseqs});
 
    bots_message(" completed!\n");

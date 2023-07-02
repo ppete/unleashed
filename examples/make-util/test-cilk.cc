@@ -1,5 +1,5 @@
 #include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
+#include <cilk/opadd_reducer.h>
 #include <cilk/cilk_api.h>
 
 int task()
