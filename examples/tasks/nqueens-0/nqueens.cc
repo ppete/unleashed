@@ -231,7 +231,7 @@ size_t nqueens_task(size_t numthreads, size_t problem_size)
 
 #if TBB_VERSION
 
-template <class G, size_t N>
+template <class G>
 void
 compute_nqueens(G& taskgroup, const board& task, ucl::simple_reducer<size_t>& reducer)
 {
@@ -245,12 +245,12 @@ compute_nqueens(G& taskgroup, const board& task, ucl::simple_reducer<size_t>& re
   {
     board newtask = task;
 
-    newtask.queens[task.rows] = i;
-    ++newtask.rows;
+    newtask.append(i);
 
     if (newtask.rows() <= global_cut_off)
-      taskgroup.run( [&taskgroup, newtask, &reducer]()->void
-                     { compute_nqueens(taskgroup, newtask, reducer);
+      taskgroup.run( [&taskgroup, t = std::move(newtask), &reducer]()->void
+                     { 
+										   compute_nqueens(taskgroup, t, reducer);
                      }
                    );
     else
