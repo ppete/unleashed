@@ -40,7 +40,7 @@ endif
 
 
 ifeq ($(TBB_ENABLED),)
-  SUCCESS=$(shell $(CXX) -std=c++11 -O0 -I$(TBB_HOME)/include $(UCL_HOME)/examples/make-util/test-tbb.cc $(LIBATOMIC) -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o /dev/null; echo $$?)
+  SUCCESS=$(shell $(CXX) -std=c++17 -O0 -I$(TBB_HOME)/include $(UCL_HOME)/examples/make-util/test-tbb.cc $(LIBATOMIC) -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o /dev/null; echo $$?)
 #~   $(info "$(CXX) -std=c++11 -O0 -I$(TBB_HOME)/include $(UCL_HOME)/examples/make-util/test-tbb.cc $(LIBATOMIC) -L$(TBB_HOME)/lib -ltbb -ltbbmalloc -o $(UCL_HOME)/examples/make-util/test-tbb.bin")
 
   ifeq ($(SUCCESS),0)

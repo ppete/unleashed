@@ -518,7 +518,7 @@ par_tree_search(G& g, int depth, Node* parent, int numChildren, ucl::simple_redu
 
 count_t parallel_uts(Node* root, size_t numthreads)
 {
-  tbb::task_scheduler_init           init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group                    g;
   ucl::simple_reducer<count_t> reducer;
 

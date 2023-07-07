@@ -189,7 +189,7 @@ auto compute_fib(G& taskgroup, I task, ucl::simple_reducer<I>& reducer) -> void
 template <class I>
 auto fib_task(size_t numthreads, I num) -> std::pair<I,size_t>
 {
-  tbb::task_scheduler_init init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group          g;
   ucl::simple_reducer<I>   reducer(0);
 
@@ -256,11 +256,11 @@ I compute_fib_nofork(I task)
 // adapted from OpenCilk's website
 // \todo a reducer based version may be faster
 template <class I>
-I compute_fib(I n) 
+I compute_fib(I n)
 {
   if (n < 2)
     return n;                   // base case
-    
+
   I x, y;
   cilk_scope {                  // begin lexical scope of parallel region
     x = cilk_spawn compute_fib(n-1);  // don't wait for function to return

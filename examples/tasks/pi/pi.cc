@@ -231,7 +231,7 @@ struct integration_task
 };
 
 
-#if OMP_VERSION 
+#if OMP_VERSION
 
 pi_type partialresult;
 #pragma omp threadprivate(partialresult)
@@ -329,7 +329,7 @@ auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pa
       task = integration_task{task.low+halfstep, halfstep, a2};
     }
   } while (dif >= tol);
-  
+
   #pragma omp taskwait
 
   partialresult += a;
@@ -415,7 +415,7 @@ void integrate_adaptive( G& taskgroup,
 template <class D, class F>
 auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
 {
-  tbb::task_scheduler_init              init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group                       g;
   ucl::simple_reducer<task_result_type> reducer;
   D                                     step = hi-lo;

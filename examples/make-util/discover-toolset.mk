@@ -41,7 +41,7 @@ ifeq ($(TARGETARCH),)
   ifneq (,$(findstring sparc,$(THISSYSTEM)))
     TARGETARCH:=SPARC
   endif
-  
+
   ifneq (,$(findstring mips64,$(THISSYSTEM)))
     TARGETARCH:=MIPS64
   endif
@@ -94,38 +94,10 @@ ifeq ($(TOOLSET),)
     else ifeq ($(TARGETARCH),SPARC)
       ARCHFLAG := -mcpu
     else
-      # x86, arm	 
+      # x86, arm
       ARCHFLAG := -march
 
       export HTMFLAG  ?= -mrtm
-    endif
-  endif
-endif
-
-ifeq ($(TOOLSET),)
-  ifneq (,$(findstring clang,$(COMPILERVERSION)))
-    export TOOLSET    := CLANG
-    export OPTFLAG    ?= -O2
-    export DBGOPTFLAG ?= -O0
-    export THREADFLAG ?= -pthread
-    export WARNFLAG   ?= -Wall -Wextra -pedantic
-    export OMPFLAG    ?= -fopenmp
-    export CILKFLAG   ?= -fopencilk
-
-    TESTNATIVE := 1
-
-    ifeq ($(TARGETARCH),POWER)
-      export HTMFLAG  ?= -mhtm
-      
-      ARCHFLAG := -mcpu
-    else 
-      # Clang10 does not accept -mcpu=native on Sparc and MIPS
-      ifneq ($(TARGETARCH),SPARC)
-      ifneq ($(TARGETARCH),MIPS64)
-        ARCHFLAG := -march
-        export HTMFLAG  ?= -mrtm
-      endif
-      endif
     endif
   endif
 endif
@@ -143,6 +115,35 @@ ifeq ($(TOOLSET),)
 
     TESTNATIVE := 1
     ARCHFLAG := -march
+  endif
+endif
+
+
+ifeq ($(TOOLSET),)
+  ifneq (,$(findstring clang,$(COMPILERVERSION)))
+    export TOOLSET    := CLANG
+    export OPTFLAG    ?= -O2
+    export DBGOPTFLAG ?= -O0
+    export THREADFLAG ?= -pthread
+    export WARNFLAG   ?= -Wall -Wextra -pedantic
+    export OMPFLAG    ?= -fopenmp
+    export CILKFLAG   ?= -fopencilk
+
+    TESTNATIVE := 1
+
+    ifeq ($(TARGETARCH),POWER)
+      export HTMFLAG  ?= -mhtm
+
+      ARCHFLAG := -mcpu
+    else
+      # Clang10 does not accept -mcpu=native on Sparc and MIPS
+      ifneq ($(TARGETARCH),SPARC)
+      ifneq ($(TARGETARCH),MIPS64)
+        ARCHFLAG := -march
+        export HTMFLAG  ?= -mrtm
+      endif
+      endif
+    endif
   endif
 endif
 
@@ -177,12 +178,12 @@ ifeq ($(TOOLSET),)
     export CPUARCH    ?= -ta=multicore
     export OMPFLAG    ?= -mp
     export WARNFLAG   ?= -Wall -pedantic
-    export THREADFLAG ?= 
+    export THREADFLAG ?=
     $(info PGI may not be fully supported)
   endif
 endif
 
-## 
+##
 ## test for native flag support
 
 ifeq ($(TESTNATIVE),1)
@@ -190,14 +191,14 @@ ifeq ($(CPUARCH),)
   ARCHFLAG:=$(ARCHFLAG)=native
 
   SUCCESS:=$(shell $(CXX) $(ARCHFLAG) -c $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)
-  
+
   ifeq ($(SUCCESS),0)
-    export CPUARCH:=$(ARCHFLAG)      
+    export CPUARCH:=$(ARCHFLAG)
   endif
 endif
 endif
 
-## 
+##
 ## test for libatomic
 
 SUCCESS:=$(shell $(CXX) -latomic $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)

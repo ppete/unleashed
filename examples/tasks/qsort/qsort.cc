@@ -163,7 +163,7 @@ template <class RandomAccessIterator, class Comparator>
 void
 quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
 {
-  tbb::task_scheduler_init init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group          g;
 
   qksort(g, aa, zz, comp);

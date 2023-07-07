@@ -464,7 +464,7 @@ void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
 
-  tbb::task_scheduler_init     init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group              g;
   default_tsp_task::branch_ptr br(branch);
 

@@ -114,7 +114,7 @@ void dp_compute( G& taskgroup,
 template <class D>
 D dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len)
 {
-  tbb::task_scheduler_init           init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group                    g;
   ucl::simple_reducer<dp_result<D> > reducer;
 

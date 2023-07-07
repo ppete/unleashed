@@ -669,7 +669,7 @@ static
 void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numthreads)
 {
   cell_ptr                 ptr(CELLS);
-  tbb::task_scheduler_init init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group          g;
 
   add_cell_task(g, floorplan_task(id, FOOTPRINT, BOARD, ptr));

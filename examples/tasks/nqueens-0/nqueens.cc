@@ -64,45 +64,45 @@ std::size_t global_cut_off = 0;
 //         small string optimizations, ...
 struct dynamic_char_seq
 {
-    explicit 
+    explicit
     dynamic_char_seq(std::size_t max_capacity)
     : capa(max_capacity), count(0), data(new char[capa])
     {}
-    
+
     dynamic_char_seq(const dynamic_char_seq& orig)
     : capa(orig.capacity()), count(orig.size()), data(new char[capa])
-    {      
+    {
       std::copy(&orig.data[0], &orig.data[orig.size()], &data[0]);
     }
-    
+
     dynamic_char_seq& operator=(const dynamic_char_seq& orig)
     {
       dynamic_char_seq cpy(orig);
-      
+
       *this = std::move(cpy);
       return *this;
     }
-    
+
     dynamic_char_seq(dynamic_char_seq&& orig)            = default;
     dynamic_char_seq& operator=(dynamic_char_seq&& orig) = default;
-    
+
     std::size_t size() const { return count; }
     std::size_t capacity() const { return capa; }
-    
-    std::size_t at(std::size_t pos) const 
+
+    std::size_t at(std::size_t pos) const
     {
       assert(pos < count);
-       
-      return data[pos]; 
+
+      return data[pos];
     }
-    
-    void push_back(char ch) 
+
+    void push_back(char ch)
     {
       assert(count < capa);
       data[count] = ch;
-      ++count; 
+      ++count;
     }
-  
+
   private:
     std::size_t             capa;
     std::size_t             count;
@@ -115,25 +115,25 @@ struct board
     board(size_t sz)
     : queens(sz)
     {}
-    
-    board(const board&)            = default;    
+
+    board(const board&)            = default;
     board(board&&)                 = default;
-    
+
     board& operator=(const board&) = default;
     board& operator=(board&&)      = default;
-    
+
     size_t size()   const            { return queens.capacity(); }
     size_t rows()   const            { return queens.size(); }
     bool   complete() const          { return queens.capacity() == queens.size(); }
     size_t at(std::size_t row) const { return queens.at(row); }
-    
+
     void   append(char pos)          { queens.push_back(pos); }
-    
-    bool   valid()    const;  
-  
+
+    bool   valid()    const;
+
   private:
     dynamic_char_seq queens;
-    
+
     board() = delete;
 };
 
@@ -202,7 +202,7 @@ void compute_nqueens(board task)
       #pragma omp task if (newtask.rows() <= global_cut_off)
       compute_nqueens(newtask);
     }
-    
+
     task.append(0);
   }
 }
@@ -211,7 +211,7 @@ void compute_nqueens(board task)
 size_t nqueens_task(size_t numthreads, size_t problem_size)
 {
   // avoid unused parameter warning for sequential version
-  size_t res = (numthreads-numthreads); 
+  size_t res = (numthreads-numthreads);
 
   #pragma omp parallel num_threads(numthreads) shared(res)
   {
@@ -249,7 +249,7 @@ compute_nqueens(G& taskgroup, const board& task, ucl::simple_reducer<size_t>& re
 
     if (newtask.rows() <= global_cut_off)
       taskgroup.run( [&taskgroup, t = std::move(newtask), &reducer]()->void
-                     { 
+                     {
 										   compute_nqueens(taskgroup, t, reducer);
                      }
                    );
@@ -260,7 +260,7 @@ compute_nqueens(G& taskgroup, const board& task, ucl::simple_reducer<size_t>& re
 
 size_t nqueens_task(size_t numthreads, size_t problem_size)
 {
-  tbb::task_scheduler_init    init(numthreads);
+  TBB_INIT(numthreads);
   tbb::task_group             g;
   ucl::simple_reducer<size_t> reducer;
 
@@ -371,9 +371,9 @@ int main(int argc, char** args)
 
   if (argc > 1) num_threads  = aux::as<size_t>(*(args+1));
   if (argc > 2) problem_size = aux::as<size_t>(*(args+2));
-  
+
   global_cut_off = (argc > 3) ? aux::as<size_t>(*(args+3)) : problem_size;
-  
+
   if (problem_size > std::numeric_limits<char>::max())
   {
     std::cerr << "problem size must be <= " << std::numeric_limits<char>::max()
