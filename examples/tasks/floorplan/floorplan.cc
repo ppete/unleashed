@@ -579,10 +579,10 @@ struct floorplan_task
 static std::mutex updlock;
 
 static
-void add_cell_task(tbb::task_group& g, floorplan_task t);
+void add_cell_task(TBB::task_group& g, floorplan_task t);
 
 static
-void compute_task(tbb::task_group& g, floorplan_task t)
+void compute_task(TBB::task_group& g, floorplan_task t)
 {
   cell*    cells = new cell[N+1];
   cell_ptr cellptr(cells);
@@ -643,7 +643,7 @@ void compute_task(tbb::task_group& g, floorplan_task t)
 }
 
 // static
-void add_cell_task(tbb::task_group& g, floorplan_task task)
+void add_cell_task(TBB::task_group& g, floorplan_task task)
 {
   /* for each possible shape */
   for (int i = 0; i < task.CELLS.get()[task.id].n; i++)
@@ -670,7 +670,7 @@ void add_cell_start(int id, coor FOOTPRINT, ibrd BOARD, cell* CELLS, size_t numt
 {
   cell_ptr                 ptr(CELLS);
   TBB_INIT(numthreads);
-  tbb::task_group          g;
+  TBB::task_group          g;
 
   add_cell_task(g, floorplan_task(id, FOOTPRINT, BOARD, ptr));
   g.wait();

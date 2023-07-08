@@ -23,6 +23,8 @@
 #include <tbb/task_scheduler_init.h>
 #include <tbb/task_group.h>
 
+namespace TBB = tbb;
+
 #define TBB_INIT(MAXPAR) tbb::task_scheduler_init init(MAXPAR)
 
 #elif __has_include(<oneapi/tbb/global_control.h>) && __has_include(<oneapi/tbb/task_group.h>)
@@ -30,7 +32,7 @@
 #include <oneapi/tbb/global_control.h>
 #include <oneapi/tbb/task_group.h>
 
-namespace tbb = oneapi::tbb;
+namespace TBB = oneapi::tbb;
 
 #define TBB_INIT(MAXPAR) oneapi::tbb::global_control global_limit(tbb::global_control::max_allowed_parallelism, MAXPAR)
 

@@ -164,7 +164,7 @@ void
 quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
 {
   TBB_INIT(numthreads);
-  tbb::task_group          g;
+  TBB::task_group          g;
 
   qksort(g, aa, zz, comp);
 

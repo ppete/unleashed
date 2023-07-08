@@ -765,7 +765,7 @@ int pairalign(size_t numthreads)
    bots_message("Start aligning ");
 
    TBB_INIT(numthreads);
-   tbb::task_group          g;
+   TBB::task_group          g;
 
    distribute(g, DistributionTask{0, nseqs});
    g.wait();

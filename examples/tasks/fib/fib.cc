@@ -190,7 +190,7 @@ template <class I>
 auto fib_task(size_t numthreads, I num) -> std::pair<I,size_t>
 {
   TBB_INIT(numthreads);
-  tbb::task_group          g;
+  TBB::task_group          g;
   ucl::simple_reducer<I>   reducer(0);
 
   compute_fib(g, num, reducer);

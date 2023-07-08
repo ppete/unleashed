@@ -115,7 +115,7 @@ template <class D>
 D dp_calc(D* lhs, D* rhs, size_t numthreads, size_t len)
 {
   TBB_INIT(numthreads);
-  tbb::task_group                    g;
+  TBB::task_group                    g;
   ucl::simple_reducer<dp_result<D> > reducer;
 
   dp_compute(g, lhs, rhs, 0, len, reducer);

@@ -261,7 +261,7 @@ compute_nqueens(G& taskgroup, const board& task, ucl::simple_reducer<size_t>& re
 size_t nqueens_task(size_t numthreads, size_t problem_size)
 {
   TBB_INIT(numthreads);
-  tbb::task_group             g;
+  TBB::task_group             g;
   ucl::simple_reducer<size_t> reducer;
 
   compute_nqueens(g, board{problem_size}, reducer);

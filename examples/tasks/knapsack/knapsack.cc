@@ -428,8 +428,8 @@ auto knapsack_par(G& taskgroup, knapsack_task task) -> void
 
 auto knapsack(item *e, int c, int n, size_t numthreads) -> int
 {
-   tbb::task_scheduler_init init(numthreads);
-   tbb::task_group          g;
+   TBB_INIT(numthreads);
+   TBB::task_group g;
 
    knapsack_par(g, knapsack_task{e, c, n, 0});
    g.wait();

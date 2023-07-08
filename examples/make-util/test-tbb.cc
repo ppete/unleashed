@@ -5,6 +5,7 @@
 #include <tbb/task_scheduler_init.h>
 #include <tbb/task_group.h>
 
+namespace TBB = tbb;
 
 #elif __has_include(<oneapi/tbb/global_control.h>) && __has_include(<oneapi/tbb/task_group.h>)
 
@@ -13,7 +14,7 @@
 
 //~ oneapi::tbb::global_control global_limit(oneapi::tbb::global_control::max_allowed_parallelism, 2);
 
-namespace tbb = oneapi::tbb;
+namespace TBB = oneapi::tbb;
 
 #else
 
@@ -29,7 +30,7 @@ int task(G& taskgroup)
 
 void test_tbb()
 {
-  tbb::task_group g;
+  TBB::task_group g;
 
   g.run([&g]()->void { task(g); });
   g.wait();

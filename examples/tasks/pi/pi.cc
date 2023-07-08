@@ -416,7 +416,7 @@ template <class D, class F>
 auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
 {
   TBB_INIT(numthreads);
-  tbb::task_group                       g;
+  TBB::task_group                       g;
   ucl::simple_reducer<task_result_type> reducer;
   D                                     step = hi-lo;
 

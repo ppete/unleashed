@@ -198,6 +198,19 @@ ifeq ($(CPUARCH),)
 endif
 endif
 
+#
+# test for C++-17 support
+ifeq ($(CXX17_ENABLED),)
+  ARCHFLAG:=$(ARCHFLAG)=native
+
+  SUCCESS:=$(shell $(CXX) -std=c++17 -c $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)
+
+  ifeq ($(SUCCESS),0)
+    export CXX17_ENABLED:=1
+  endif
+endif
+
+
 ##
 ## test for libatomic
 
