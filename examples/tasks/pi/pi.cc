@@ -53,6 +53,7 @@
 #include "../common/common-includes.hpp"
 
 #include "ucl/atomicutil.hpp"
+#include "ucl/cxx-compat.hpp"
 
 #define PRINT_STATS 0
 #define WITH_HISTOGRAM 0
@@ -95,16 +96,16 @@ typedef pi_type                    task_result_type;
 
 namespace
 {
-inline
+CXX_MAYBE_UNUSED
 pi_type value(counting_task_t t)   { return t.val; }
 
-inline
+CXX_MAYBE_UNUSED
 size_t segments(counting_task_t t) { return t.seg; }
 
-inline
+CXX_MAYBE_UNUSED
 pi_type value(pi_type t)   { return t; }
 
-inline
+CXX_MAYBE_UNUSED
 size_t segments(pi_type)   { return 0; }
 }
 
@@ -339,7 +340,7 @@ auto integrate_adaptive(F f, D eps, integration_task<D> task) -> void // std::pa
 
 
 template <class D, class F>
-auto integrate_adaptive(F f, D lo, D hi, size_t numthreads, D eps) -> task_result_type
+auto integrate_adaptive(F f, D lo, D hi, CXX_MAYBE_UNUSED size_t numthreads, D eps) -> task_result_type
 {
   D step = hi-lo;
   D res  = D();

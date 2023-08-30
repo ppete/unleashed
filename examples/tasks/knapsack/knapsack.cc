@@ -44,6 +44,7 @@
 #include "../common/bots.hpp"
 
 #include "../common/common-includes.hpp"
+#include "ucl/cxx-compat.hpp"
 
 #define MAX_ITEMS 256
 

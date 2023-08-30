@@ -50,6 +50,7 @@
 #include "../common/common-includes.hpp"
 
 #include "ucl/atomicutil.hpp"
+#include "ucl/cxx-compat.hpp"
 
 // Problem size
 #ifndef PROBLEM_SIZE
@@ -654,7 +655,7 @@ auto tsp_adaptive(T task) -> void // std::pair<D, size_t>
   delete pbranch;
 }
 
-void tsp_launch(int** graph, BranchSet* branch, bool left, size_t numthreads)
+void tsp_launch(int** graph, BranchSet* branch, bool left, CXX_MAYBE_UNUSED size_t numthreads)
 {
   min_path.store(std::numeric_limits<result_t>::max());
 

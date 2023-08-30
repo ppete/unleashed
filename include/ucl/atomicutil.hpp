@@ -11,9 +11,10 @@
 #include <new>
 
 #ifndef CACHELINESZ
-  #if __cpp_lib_hardware_interference_size
-    #define CACHELINESZ (std::hardware_destructive_interference_size)
-  #elif defined(_ARCH_PPC64)
+  //~ #if __cpp_lib_hardware_interference_size
+    //~ #define CACHELINESZ (std::hardware_destructive_interference_size)
+  //~ #el
+  #if defined(_ARCH_PPC64)
     #define CACHELINESZ 128
   #else
     #define CACHELINESZ 64

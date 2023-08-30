@@ -53,6 +53,7 @@
 #include "../common/common-includes.hpp"
 
 #include "ucl/atomicutil.hpp"
+#include "ucl/cxx-compat.hpp"
 
 #ifndef PROBLEM_SIZE
 #define PROBLEM_SIZE (40)
@@ -135,7 +136,7 @@ void fib_task(I task)
 }
 
 template <class I>
-auto fib_task(size_t numthreads, I num) -> std::pair<I, size_t>
+auto fib_task(CXX_MAYBE_UNUSED size_t numthreads, I num) -> std::pair<I, size_t>
 {
   I                                                    res  = 0;
   size_t                                               ctr  = 1;

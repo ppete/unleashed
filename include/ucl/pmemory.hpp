@@ -269,34 +269,36 @@ namespace lockfree
   template <class _Tp, template <class> class _Alloc>
   struct alloc_base
   {
-      typedef typename _Alloc<_Tp>::value_type      value_type;
-      typedef typename _Alloc<_Tp>::reference       reference;
-      typedef typename _Alloc<_Tp>::pointer         pointer;
-      typedef typename _Alloc<_Tp>::const_pointer   const_pointer;
-      typedef typename _Alloc<_Tp>::const_reference const_reference;
-      typedef typename _Alloc<_Tp>::size_type       size_type;
-      typedef typename _Alloc<_Tp>::difference_type difference_type;
-
+      using value_type      = typename _Alloc<_Tp>::value_type;
+      using reference       = value_type&;
+      using const_reference = const value_type&;
+      using pointer         = value_type*;
+      using const_pointer   = const value_type*;
+      using size_type       = std::size_t;
+      using difference_type = std::ptrdiff_t;
+      
       // \pp types added for icc
-      typedef void*                                 void_pointer;
-      typedef const void*                           const_void_pointer;
-      typedef std::false_type                       propagate_on_container_copy_assignment;
-      typedef std::false_type                       propagate_on_container_move_assignment;
-      typedef std::false_type                       propagate_on_container_swap;
-      typedef std::false_type                       is_always_equal;
+      using void_pointer       = void*;
+      using const_void_pointer = const void*;
+      using propagate_on_container_copy_assignment = std::false_type;
+      using propagate_on_container_move_assignment = std::false_type;
+      using propagate_on_container_swap            = std::false_type;
+      using is_always_equal                        = std::false_type;
 
-      typedef _Alloc<_Tp>                           base_allocator;
-      typedef typename _Alloc<_Tp>::template rebind<void> _AllocVoid;
+      using base_allocator = _Alloc<_Tp>;
+      //~ using _AllocVoid = typename _Alloc<_Tp>::template rebind<void>;
 
       explicit
       alloc_base(_Alloc<_Tp> allocator = _Alloc<_Tp>())
       : alloc(allocator)
       {}
 
+
       template <class _Up>
       explicit
       alloc_base(const alloc_base<_Up, _Alloc>&)
-      : alloc(typename _Alloc<_Up>::template rebind<_Tp>::other())
+      //~ : alloc(typename _Alloc<_Up>::template rebind<_Tp>::other())
+      : alloc(typename std::allocator_traits< _Alloc<_Up> >::template rebind_alloc<_Tp>())
       {}
 
       pointer address(reference x) const noexcept
@@ -309,9 +311,9 @@ namespace lockfree
         return alloc.address(x);
       }
 
-      pointer allocate(size_type n, std::allocator<void>::const_pointer hint = nullptr)
+      pointer allocate(size_type n)
       {
-        return alloc.allocate(n, hint);
+        return alloc.allocate(n);
       }
 
       template <class U, class... Args>
@@ -758,9 +760,13 @@ namespace lockfree
   /// \private
   /// \brief Iterator that goes through a hazard pointer data stack
   template <class _ScanData>
-  struct scan_iterator : std::iterator<std::forward_iterator_tag, const _ScanData>
+  struct scan_iterator 
   {
-    typedef std::iterator<std::forward_iterator_tag, const _ScanData> base;
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = const _ScanData;
+    using difference_type = int;
+    using pointer = value_type*;
+    using reference = value_type&;
 
     explicit
     scan_iterator(_ScanData* where)
@@ -783,7 +789,7 @@ namespace lockfree
       return *this;
     }
 
-    const typename base::value_type&
+    value_type&
     operator*()
     {
       return *pos;
@@ -1175,10 +1181,13 @@ namespace lockfree
   struct release_entry
   {
     // rebind alloc to release entry types
-    typedef typename _Alloc::template rebind<size_t>::other size_t_alloc;
-    typedef typename _Alloc::template rebind<_T*>::other    tp_alloc;
-    typedef std::vector<size_t>               epoch_vector;
-    typedef std::vector<_T*>                      epoch_ptr_vector;
+    //~ typedef typename _Alloc::template rebind<size_t>::other size_t_alloc;
+    //~ typedef typename _Alloc::template rebind<_T*>::other    tp_alloc;
+    //~ typedef std::vector<size_t>               epoch_vector;
+    //~ typedef std::vector<_T*>                      epoch_ptr_vector;
+    
+    using epoch_vector     = std::vector<size_t>;
+    using epoch_ptr_vector = std::vector<_T*>;
 
     epoch_vector     epochtime;
     epoch_ptr_vector epochptrs;
@@ -1318,7 +1327,8 @@ namespace lockfree
                       epoch.epochptrs.end(),
                       [this](value_type* ptr)
                       {
-                        alloc.destroy(ptr);
+                        //~ alloc.destroy(ptr);
+                        ptr->~value_type();
                         alloc.deallocate(ptr,1);
                       }
                     );
@@ -1384,9 +1394,9 @@ namespace lockfree
       : base()
       {}
 
-      pointer allocate(size_type n, std::allocator<void>::const_pointer hint = nullptr)
+      pointer allocate(size_type n)
       {
-        return base::allocate(n, hint);
+        return base::allocate(n);
       }
 
       /// safely loads the content of an atomic variable

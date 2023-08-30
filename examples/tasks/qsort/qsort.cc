@@ -45,6 +45,7 @@
 #include "../common/common-includes.hpp"
 
 #include "ucl/atomicutil.hpp"
+#include "ucl/cxx-compat.hpp"
 
 #ifndef PROBLEM_SIZE
 #define PROBLEM_SIZE 1000000
@@ -109,7 +110,7 @@ qksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp)
 
 template <class RandomAccessIterator, class Comparator>
 void
-quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
+quicksort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, CXX_MAYBE_UNUSED size_t numthreads)
 {
   #pragma omp parallel num_threads(numthreads) firstprivate(aa, zz, comp)
   #pragma omp single

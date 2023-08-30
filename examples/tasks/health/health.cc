@@ -53,6 +53,7 @@
 
 #include "../common/common-includes.hpp"
 #include "../common/bots.hpp"
+#include "ucl/cxx-compat.hpp"
 
 
 #include "health.h"
@@ -499,7 +500,7 @@ void sim_village_par(struct Village *village)
 }
 
 /**********************************************************************/
-void sim_village_main_par(Village *top, size_t numthreads)
+void sim_village_main_par(Village *top, CXX_MAYBE_UNUSED size_t numthreads)
 {
 #pragma omp parallel num_threads(numthreads)
 #pragma omp single

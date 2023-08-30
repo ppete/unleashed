@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "../common/common-includes.hpp"
+#include "ucl/cxx-compat.hpp"
 
 #if STL_VERSION
 
@@ -149,7 +150,7 @@ void mgsort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp)
 
 template <class RandomAccessIterator, class Comparator>
 void
-mergesort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, size_t numthreads)
+mergesort(RandomAccessIterator aa, RandomAccessIterator zz, Comparator comp, CXX_MAYBE_UNUSED size_t numthreads)
 {
   #pragma omp parallel num_threads(numthreads) firstprivate(aa, zz, comp)
   #pragma omp single

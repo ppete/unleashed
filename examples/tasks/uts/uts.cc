@@ -79,6 +79,7 @@
 #include "../common/common-includes.hpp"
 #include "../common/bots.hpp"
 #include "ucl/atomicutil.hpp"
+#include "ucl/cxx-compat.hpp"
 
 //~ #include "app-desc.h"
 //~ #include "bots.h"
@@ -229,7 +230,7 @@ count_t parTreeSearch(int depth, Node *parent, int numChildren)
 }
 
 
-count_t parallel_uts(Node* root, size_t numthreads)
+count_t parallel_uts(Node* root, CXX_MAYBE_UNUSED size_t numthreads)
 {
    count_t num_nodes = 0 ;
    root->numChildren = uts_numChildren(root);
