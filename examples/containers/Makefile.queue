@@ -11,7 +11,7 @@ TEST_NAME ?= TEST_EPOCH_MANAGER
 # libraries
 
 SOURCE := testQueue.cc
-TARGET := $(SOURCE:.cc=.bin)
+TARGET ?= queue.bin
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)

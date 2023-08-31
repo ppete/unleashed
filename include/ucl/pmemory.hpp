@@ -319,7 +319,8 @@ namespace lockfree
       template <class U, class... Args>
       void construct (U* p, Args&&... args)
       {
-        alloc.construct(p, args...);
+        // alloc.construct(p, args...);
+        new (p) U(args...);
       }
 
       void deallocate(pointer p, size_type n)
@@ -412,7 +413,8 @@ namespace lockfree
     template <class T>
     void operator()(T* ptr)
     {
-      alloc.destroy(ptr);
+      //~ alloc.destroy(ptr);
+      ptr->~T();
 
       alloc.deallocate(ptr, 1);
     }
@@ -1058,11 +1060,11 @@ namespace lockfree
 
       /// allocates a new memory block
       value_type*
-      allocate(size_t num, const void* hint=0)
+      allocate(size_t num)
       {
         assert(num == 1);
 
-        value_type* res = base::allocate(num, hint);
+        value_type* res = base::allocate(num);
         return res;
       }
 

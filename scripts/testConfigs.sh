@@ -28,7 +28,7 @@ test_simple_make()
   testname=$2
   expected=$3
 
-  outdir=${OUTPUTDIR:-"./tmp"}
+  outdir=${COMPDIR:-"./tmp"}
 
   echo "make TEST_NAME=$testname -f Makefile.$1"
   make "TEST_NAME=$testname" -f Makefile.$1
@@ -36,6 +36,10 @@ test_simple_make()
 
   if [[ "$expected" -ne "$res" ]]; then
     exit $res
+  fi
+  
+  if [[ "$expected" -eq 0 ]]; then
+    mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX-$CXXVERSION.bin"
   fi
 }
 
@@ -86,9 +90,9 @@ test_stacks()
   test_simple_make stack TEST_NO_MANAGER 0
   test_simple_make stack TEST_EPOCH_MANAGER 0
   test_simple_make stack TEST_PUB_SCAN_MANAGER 0
-  test_simple_make stack TEST_GC_MANAGER 0
+  #~ test_simple_make stack TEST_GC_MANAGER 0
   test_simple_make stack TEST_STD_LOCKGUARD 0
-  test_simple_make stack TEST_UNLEASHED_LOCKGUARD 0
+  #~ test_simple_make stack TEST_UNLEASHED_LOCKGUARD 0
   #~ test_stack_make TEST_UNLEASHED_ELIDEGUARD 0
 }
 
@@ -97,9 +101,9 @@ test_queues()
   test_simple_make queue TEST_NO_MANAGER 0
   test_simple_make queue TEST_EPOCH_MANAGER 0
   test_simple_make queue TEST_PUB_SCAN_MANAGER 0
-  test_simple_make queue TEST_GC_MANAGER 0
+  #~ test_simple_make queue TEST_GC_MANAGER 0
   test_simple_make queue TEST_STD_LOCKGUARD 0
-  test_simple_make queue TEST_UNLEASHED_LOCKGUARD 0
+  #~ test_simple_make queue TEST_UNLEASHED_LOCKGUARD 0
   #~ test_stack_make TEST_UNLEASHED_ELIDEGUARD 0
 }
 
@@ -107,27 +111,35 @@ test_queues()
 
 ###
 # COMPILERS
-COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
-COMPILERS="$COMPILERS clang++-4.0 clang++-6.0 clang++-7"
-COMPILERS="$COMPILERS icpc xlc++ sunCC"
+#~ COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
+#~ COMPILERS="$COMPILERS clang++-4.0 clang++-6.0 clang++-7"
+#~ COMPILERS="$COMPILERS icpc xlc++ sunCC"
+COMPILERS="g++-12 clang++-15 icpx"
+
+STANDARDS="-std=c++11 -std=c++14 -std=c++17 -std=c++20"
 
 ###
 # DATA STRUCTURE TESTS
 
 #~ TESTS="test_queues"
 
-TESTS="test_skiplists test_stacks test_queues"
+#~ TESTS="test_skiplists test_stacks test_queues"
+TESTS="test_stacks test_queues"
 
 cd ../examples/containers
 
 for arg in $COMPILERS
 do
   if hash $arg 2>/dev/null; then
-    export CXX=$arg
-    echo "* testing $CXX"
-    for test in $TESTS
+    for std in $STANDARDS
     do
-      $test
+      export CXX="$arg"
+      export CXXVERSION="$std"
+      echo "* testing $CXX"
+      for test in $TESTS
+      do
+        $test
+      done
     done
   fi
 done

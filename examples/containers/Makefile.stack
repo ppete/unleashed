@@ -12,11 +12,12 @@ TEST_NAME ?= TEST_EPOCH_MANAGER
 # libraries
 
 SOURCE := testStack.cc
-TARGET := $(SOURCE:.cc=.bin)
+TARGET ?= stack.bin
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)
 LIBS := $(LIBATOMIC)
+CXXVERSION ?= -std=c++11
 
 ifeq ($(TEST_NAME),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -33,7 +34,7 @@ ifneq ($(TEST_HTM),)
   FLAGS+= $(HTMFLAG)
 endif
 
-CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
+CXXFLAGS := $(CXXVERSION) $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 
 .PHONY: test clean
 
