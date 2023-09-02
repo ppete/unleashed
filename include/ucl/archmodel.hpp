@@ -3,9 +3,9 @@
 #define _UCL_ARCHMODEL_H 1
 
 #include <cassert>
-#include <thread>
 
 #include "ucl/unused.hpp"
+#include "ucl/thread.hpp"
 
 //
 // provides implementation of hardware models
@@ -31,7 +31,7 @@ namespace ucl
 
     size_t max_concurrency()
     {
-      size_t hw = std::thread::hardware_concurrency();
+      size_t hw = ucl::thread::hardware_concurrency();
 
       return hw ? hw:168;  /* artificial limit */
     }

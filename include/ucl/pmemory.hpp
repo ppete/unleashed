@@ -113,6 +113,7 @@
 #include <numeric>
 #include <forward_list>
 #include <sstream>
+#include <tuple>
 
 #include "ucl/atomicutil.hpp"
 #include "ucl/bitutil.hpp"
@@ -617,22 +618,12 @@ namespace lockfree
   template <class _Tp, class _Alloc>
   struct pub_scan_data
   {
-      typedef std::allocator_traits<_Alloc>                          _OrigAlloc_traits;
-      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp> _TpAlloc;
-      typedef typename _OrigAlloc_traits::template rebind_alloc<_Tp*> _PpAlloc;
+      using _OrigAlloc_traits  = std::allocator_traits<_Alloc>;
+      using _TpAlloc           = typename _OrigAlloc_traits::template rebind_alloc<_Tp>;
+      using _PpAlloc           = typename _OrigAlloc_traits::template rebind_alloc<_Tp*>;
 
-      typedef std::atomic<_Tp*> pinwall_entry;
-      typedef std::vector<_Tp*> removal_collection;
-
-      pub_scan_data<_Tp, _Alloc> const * next; ///< next thread's data
-      pinwall_entry* const               base; ///< base address of hazard pointers
-                                               //  \todo consider to use unique pointer
-      std::atomic<pinwall_entry*>        last; ///< memory managed by base
-      // size_t                             maxCnt;
-      size_t                             cnt;  ///< number of removed ptr since last collection
-      size_t                             collection_time; ///< when the next collection should occur
-      const size_t                       pinwall_size;
-      removal_collection                 rmvd; ///< removed but not yet freed pointers
+      using pinwall_entry      = std::atomic<_Tp*>;
+      using removal_collection = std::vector<_Tp*>;
 
       // \todo new
       explicit
@@ -641,15 +632,12 @@ namespace lockfree
         cnt(0), collection_time(len), pinwall_size(len), rmvd()
       {}
 
-      pub_scan_data(const pub_scan_data&) = delete;
-      pub_scan_data& operator=(const pub_scan_data&) = delete;
-
       /// \brief destructor, never to be called as this may generate a hazard
       ///        with a potential concurrent access to the same data
       ~pub_scan_data()
       {
         assert(false); // should never be called
-        delete[] base;
+        // delete[] base;
       }
 
       /// \brief internal method that combines handling atomic and markable pointers
@@ -757,6 +745,51 @@ namespace lockfree
       }
 
       bool needs_collect() const { return collection_time <= cnt; }
+      
+      void removed(_Tp* elem) 
+      { 
+        rmvd.push_back(elem); 
+        ++cnt;
+      }
+      
+      void next_collection_time(size_t nexttime)
+      { 
+        cnt = 0;
+        collection_time = pinwall_size + nexttime;
+      }
+      
+      size_t next_collection_time() const
+      {
+        return collection_time;
+      }
+      
+      std::tuple<typename removal_collection::iterator, typename removal_collection::iterator>
+      removed_range()
+      {
+        return { rmvd.begin(), rmvd.end() };
+      }
+      
+      void trim_removed(typename removal_collection::iterator pos)
+      {
+        rmvd.erase(pos, rmvd.end());
+      }
+
+      pub_scan_data<_Tp, _Alloc> const * next; ///< next thread's data
+      pinwall_entry* const               base; ///< base address of hazard pointers
+                                               //  \todo consider to use unique pointer
+      std::atomic<pinwall_entry*>        last; ///< memory managed by base
+    private:
+      // size_t                             maxCnt;
+      size_t                             cnt;  ///< number of removed ptr since last collection
+      size_t                             collection_time; ///< when the next collection should occur
+      const size_t                       pinwall_size;
+      removal_collection                 rmvd; ///< removed but not yet freed pointers
+
+      pub_scan_data() = delete;
+      pub_scan_data(const pub_scan_data&) = delete;
+      pub_scan_data(pub_scan_data&&) = delete;
+      pub_scan_data& operator=(const pub_scan_data&) = delete;
+      pub_scan_data& operator=(pub_scan_data&&) = delete;
   };
 
   /// \private
@@ -764,58 +797,67 @@ namespace lockfree
   template <class _ScanData>
   struct scan_iterator 
   {
-    using iterator_category = std::forward_iterator_tag;
-    using value_type = const _ScanData;
-    using difference_type = int;
-    using pointer = value_type*;
-    using reference = value_type&;
+      using iterator_category = std::forward_iterator_tag;
+      using value_type = const _ScanData;
+      using difference_type = int;
+      using pointer = value_type*;
+      using reference = value_type&;
+  
+      explicit
+      scan_iterator(_ScanData* where)
+      : pos(where)
+      {}
+      
+      scan_iterator(const scan_iterator&)            = default;
+      scan_iterator& operator=(const scan_iterator&) = default;
+      ~scan_iterator()                               = default;
+  
+#if __cplusplus >= 202002L  
 
-    explicit
-    scan_iterator(_ScanData* where)
-    : pos(where)
-    {}
+      bool operator==(const scan_iterator& that) const = default;
+      bool operator!=(const scan_iterator& that) const = default;
 
-    bool operator==(const scan_iterator& that) const
-    {
-      return this->pos == that.pos;
-    }
-
-    bool operator!=(const scan_iterator& that) const
-    {
-      return this->pos != that.pos;
-    }
-
-    scan_iterator operator=(const scan_iterator& that)
-    {
-      this->pos = that.pos;
-      return *this;
-    }
-
-    value_type&
-    operator*()
-    {
-      return *pos;
-    }
-
-    scan_iterator& operator++()
-    {
-      assert(pos != nullptr);
-
-      pos = pos->next;
-      return *this;
-    }
-
-    scan_iterator operator++(int)
-    {
-      scan_iterator tmp(*this);
-
-      assert(pos != nullptr);
-      pos = pos->next;
-
-      return tmp;
-    }
-
-    const _ScanData* pos;
+#else /* !C++20 */
+      bool operator==(const scan_iterator& that) const
+      {
+        return this->pos == that.pos;
+      }
+  
+      bool operator!=(const scan_iterator& that) const
+      {
+        return this->pos != that.pos;
+      }
+#endif /* C++20 */
+  
+      value_type& operator*()
+      {
+        return *pos;
+      }
+  
+      scan_iterator& operator++()
+      {
+        assert(pos != nullptr);
+  
+        pos = pos->next;
+        return *this;
+      }
+  
+      scan_iterator operator++(int)
+      {
+        scan_iterator tmp(*this);
+  
+        assert(pos != nullptr);
+        pos = pos->next;
+  
+        return tmp;
+      }
+  
+    private:
+      const _ScanData* pos;
+      
+      scan_iterator()                           = delete;
+      scan_iterator(scan_iterator&&)            = delete;
+      scan_iterator& operator=(scan_iterator&&) = delete;
   };
 
   /// \private
@@ -979,7 +1021,7 @@ namespace lockfree
         pub_scan_data*     curr = allPinWalls.load(std::memory_order_relaxed);
         pub_scan_iterator  pos(curr);
         pub_scan_iterator  end(nullptr);
-        removal_collection res = std::for_each(pos, end, pub_scanner(pinWall->collection_time, (size_t)1)).result();
+        removal_collection res = std::for_each(pos, end, pub_scanner(pinWall->next_collection_time(), (size_t)1)).result();
 
         return res;
       }
@@ -1002,12 +1044,16 @@ namespace lockfree
 
         std::sort(pinnedPtrs.begin(), pinnedPtrs.end());
 
+#if __cplusplus >= 202002L
+        auto[aa, zz] = pinWall->removed_range();
+#else /* !C++20 */
         // sort previously freed pointers
-        removal_collection&                   rmvd = pinWall->rmvd;
-        typename removal_collection::iterator aa   = rmvd.begin();
-        typename removal_collection::iterator zz   = rmvd.end();
-
-        // std::sort(aa, zz);
+        //~ removal_collection&                   rmvd = pinWall->rmvd;
+        typename removal_collection::iterator aa; //   = rmvd.begin();
+        typename removal_collection::iterator zz; //  = rmvd.end();
+        
+        std::tie(aa,zz) = pinWall->removed_range();
+#endif /* !C++20 */        
 
         // make the non pinned pointers available to be freed
         typename removal_collection::iterator pos = std::partition(aa, zz, pinned(pinnedPtrs));
@@ -1016,11 +1062,10 @@ namespace lockfree
         std::for_each(pos, zz, deallocator(base::get_allocator()));
 
         // eliminate already freed from set
-        rmvd.erase(pos, zz);
+        pinWall->trim_removed(pos);
 
         // reset iteration count
-        pinWall->cnt = 0;
-        pinWall->collection_time = pinWall->pinwall_size + threshold(pinnedPtrs.size());
+        pinWall->next_collection_time(threshold(pinnedPtrs.size()));
       }
 
       /// releases all memory under assumption that data structure is quiescent
@@ -1076,8 +1121,7 @@ namespace lockfree
         assert(pinWall);
         ucl::unused(num), assert(num == 1); // currently the allocator is limited to a single object
 
-        pinWall->rmvd.push_back(obj);
-        ++pinWall->cnt;
+        pinWall->removed(obj);
 
         if (FREE_ALWAYS || pinWall->needs_collect()) release_memory();
       }

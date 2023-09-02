@@ -12,7 +12,7 @@ TEST_NAME ?= TEST_EPOCH_MANAGER
 # libraries
 
 SOURCE := testStack.cc
-TARGET ?= stack.bin
+TARGET ?= $(COMPDIR)/stack.bin
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)
@@ -34,13 +34,13 @@ ifneq ($(TEST_HTM),)
   FLAGS+= $(HTMFLAG)
 endif
 
-CXXFLAGS := $(CXXVERSION) $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
+CXXFLAGS := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
 
 .PHONY: test clean
 
-test: $(COMPDIR)/$(TARGET)
+test: $(TARGET)
 
-$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/stack.hpp Makefile.queue
+$(TARGET): $(SOURCE) $(INCLUDE)/ucl/stack.hpp Makefile.stack
 	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
 clean:

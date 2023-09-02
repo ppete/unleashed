@@ -1,6 +1,5 @@
 // g++ -ggdb -O2 -std=c++11 -Wall -Wextra -pedantic -pthread -mrtm -DHTM_ENABLED=1 -I../include testElidable.cc  -o tmp/testElidable.bin
 
-#include <thread>
 #include <iostream>
 #include <sstream>
 #include <list>
@@ -12,6 +11,7 @@
 
 #include "ucl/unused.hpp"
 #include "ucl/spinlock.hpp"
+#include "ucl/thread.hpp"
 
 #include "lock-selection.hpp"
 
@@ -86,7 +86,7 @@ void parallel_test(const size_t cntthreads, const size_t num_retries, const size
   std::cout << std::endl;
   
   size_t                 counter = 0;
-  std::list<std::thread> exp_threads;
+  std::list<ucl::thread> exp_threads;
   std::vector<size_t>    runtime_data(cntthreads, 0);
   time_point             starttime = std::chrono::system_clock::now();
 
@@ -101,7 +101,7 @@ void parallel_test(const size_t cntthreads, const size_t num_retries, const size
   }
 
   // join
-  for (std::thread& thr : exp_threads) thr.join();
+  for (ucl::thread& thr : exp_threads) thr.join();
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();

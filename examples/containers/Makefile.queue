@@ -11,13 +11,12 @@ TEST_NAME ?= TEST_EPOCH_MANAGER
 # libraries
 
 SOURCE := testQueue.cc
-TARGET ?= queue.bin
+TARGET ?= $(COMPDIR)/queue.bin
 DEFINES := -D$(TEST_NAME)=1
 INCLUDE := $(UCL_HOME)/include
 FLAGS := $(THREADFLAG)
 LIBS := $(LIBATOMIC)
-
-CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
+CXXVERSION ?= -std=c++11
 
 ifeq ($(TEST_NAME),TEST_GC_MANAGER)
   ifneq ($(GC_HOME),)
@@ -34,13 +33,13 @@ ifneq ($(TEST_HTM),)
   FLAGS+= $(HTMFLAG)
 endif
 
-CXXFLAGS := -std=c++11 $(WARNINGFLAG) $(OPTFLAG) $(FLAGS) $(CPUARCH) $(DBGFLAG)
+CXXFLAGS := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(HTMFLAG) $(DBGFLAG)
 
 
 .PHONY: test
-test: $(COMPDIR)/$(TARGET)
+test: $(TARGET)
 
-$(COMPDIR)/$(TARGET): $(SOURCE) $(INCLUDE)/ucl/queue.hpp Makefile.queue
+$(TARGET): $(SOURCE) $(INCLUDE)/ucl/queue.hpp Makefile.queue
 	$(CXX) $(CXXFLAGS) $(DEFINES) -I$(INCLUDE) $(INCDIR) $< $(LIBS) -o $@
 
 .PHONY: clean

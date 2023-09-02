@@ -1,10 +1,10 @@
-#include <thread>
 #include <iostream>
 #include <sstream>
 #include <list>
 #include <iomanip>
 
 #include "ucl/unused.hpp"
+#include "ucl/thread.hpp"
 
 #ifndef WITHOUT_GC
   #define GC_THREADS 1
@@ -423,7 +423,7 @@ void parallel_test(const size_t cntthreads, const size_t cntoper)
 {
   std::cout << std::endl;
 
-  std::list<std::thread>  exp_threads;
+  std::list<ucl::thread>  exp_threads;
   std::list<ThreadInfo>   thread_info;
   container_type          cont;
 
@@ -437,7 +437,7 @@ void parallel_test(const size_t cntthreads, const size_t cntoper)
   }
 
   // join
-  for (std::thread& thr : exp_threads) thr.join();
+  for (ucl::thread& thr : exp_threads) thr.join();
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();

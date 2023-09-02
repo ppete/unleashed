@@ -1,5 +1,4 @@
 
-#include <thread>
 #include <iostream>
 #include <sstream>
 #include <list>
@@ -14,6 +13,7 @@
 #endif
 
 #include "ucl/spinlock.hpp"
+#include "ucl/thread.hpp"
 
 #include "lock-selection.hpp"
 
@@ -106,7 +106,7 @@ void parallel_test(const size_t numthreads, const size_t numiter)
 {
   std::cout << std::endl;
 
-  std::list<std::thread> exp_threads;
+  std::list<ucl::thread> exp_threads;
   std::vector<double>    res_threads(numthreads, 0);
   std::vector<size_t>    run_data_threads(numthreads, 0);
 
@@ -125,7 +125,7 @@ void parallel_test(const size_t numthreads, const size_t numiter)
   }
 
   // join
-  for (std::thread& thr : exp_threads) { thr.join(); }
+  for (ucl::thread& thr : exp_threads) { thr.join(); }
 
   std::cout.precision(17);
 

@@ -167,7 +167,6 @@
 #define _GNU_SOURCE 1
 
 #include <algorithm>
-#include <thread>
 #include <cassert>
 #include <functional>
 
@@ -176,6 +175,7 @@
 #include <sys/resource.h>
 #endif /* UCL_RUNTIME_DATA */
 
+#include "ucl/thread.hpp"
 #include "ucl/atomicutil.hpp"
 #include "ucl/pmemory.hpp"
 
@@ -1242,7 +1242,7 @@ namespace ucl
 
     R                  sub;
     std::atomic<nat_t> signal(0);
-    std::thread        t(taskloop_term<R,P,F>, &signal, coordinator, thrnumlo, last, &sub, taskpool, worker);
+    ucl::thread        t(taskloop_term<R,P,F>, &signal, coordinator, thrnumlo, last, &sub, taskpool, worker);
 
     t.detach();
     spawn_threads_single<R>(coordinator, thrnumlo, thrnumlo, last, res, taskpool, worker);
@@ -1286,7 +1286,7 @@ namespace ucl
     const nat_t        thrnummid = thrnumlo+numthreads/2;
     R                  sub;
     std::atomic<nat_t> signal(0);
-    std::thread        spawner(spawn_threads_term<R,P,F>, &signal, coordinator, thrnumlo, thrnummid, thrnumhi, &sub, taskpool, worker);
+    ucl::thread        spawner(spawn_threads_term<R,P,F>, &signal, coordinator, thrnumlo, thrnummid, thrnumhi, &sub, taskpool, worker);
 
     spawner.detach();
     spawn_threads<R>(coordinator, thrnumlo, thrnumlo, thrnummid, res, taskpool, worker);
@@ -1329,7 +1329,7 @@ namespace ucl
 
     const nat_t thrnummid = thrnumlo+1;
     R            sub;
-    std::thread  spawner(spawn_threads<R,P,F>, thrnummid, thrnumhi, &sub, taskpool, worker);
+    ucl::thread  spawner(spawn_threads<R,P,F>, thrnummid, thrnumhi, &sub, taskpool, worker);
 
     taskloop(thrnumlo, res, taskpool, worker);
     spawner.join();

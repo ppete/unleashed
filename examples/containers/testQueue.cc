@@ -1,7 +1,6 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
-#include <thread>
 #include <functional>
 #include <list>
 #include <mutex>
@@ -16,6 +15,7 @@
 
 #include "ucl/spinlock.hpp"
 #include "ucl/queue.hpp"
+#include "ucl/thread.hpp"
 
 namespace lf = lockfree;
 namespace fg = locking;
@@ -142,7 +142,7 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
   std::cout << std::endl;
 
   container_type          qu;
-  std::list<std::thread>  exp_threads;
+  std::list<ucl::thread>  exp_threads;
 
   //~ waiting_threads = cntthreads;
 
@@ -158,7 +158,7 @@ void parallel_test(const size_t cntoper, const size_t cntthreads)
   }
 
   // join
-  for (std::thread& thr : exp_threads) thr.join();
+  for (ucl::thread& thr : exp_threads) thr.join();
 
   time_point     endtime = std::chrono::system_clock::now();
   int            elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();

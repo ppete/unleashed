@@ -7,10 +7,10 @@ test_make()
   allocator=$3
   expected=$4
 
-  outdir=${COMPDIR:-"./tmp"}
+  outdir=$COMPDIR
 
   echo "make TEST_CONTAINER=$container TEST_ALLOC=$allocator -f Makefile.$selector"
-  make TEST_CONTAINER="$container" TEST_ALLOC="$allocator" -f Makefile."$selector"
+  make TEST_CONTAINER="$container" TEST_ALLOC="$allocator" -f Makefile."$selector" -C ../examples/containers
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
@@ -28,19 +28,19 @@ test_simple_make()
   testname=$2
   expected=$3
 
-  outdir=${COMPDIR:-"./tmp"}
+  outdir="$COMPDIR"
 
-  echo "make TEST_NAME=$testname -f Makefile.$1"
-  make "TEST_NAME=$testname" -f Makefile.$1
+  echo "make TEST_NAME=$testname TARGET=$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin -f Makefile.$selector -C ../examples/containers"
+  make TEST_NAME="$testname" TARGET="$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin" -f Makefile."$selector" -C ../examples/containers
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
     exit $res
   fi
   
-  if [[ "$expected" -eq 0 ]]; then
-    mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX-$CXXVERSION.bin"
-  fi
+#  if [[ "$expected" -eq 0 ]]; then
+#    mv "$outdir"/"$selector".bin "$outdir"/"$selector""-$2-$3-$CXX-$CXXVERSION.bin"
+#  fi
 }
 
 
@@ -50,7 +50,7 @@ test_htm_make()
   allocator=$2
   expected=$3
 
-  outdir=${COMPDIR:-"./tmp"}
+  outdir="$COMPDIR"
 
   echo "make TEST_ALLOC=$allocator TEST_HTM=1 -f Makefile.$selector"
   make TEST_ALLOC="$allocator" TEST_HTM=1 -f Makefile."$selector"
@@ -114,7 +114,10 @@ test_queues()
 #~ COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
 #~ COMPILERS="$COMPILERS clang++-4.0 clang++-6.0 clang++-7"
 #~ COMPILERS="$COMPILERS icpc xlc++ sunCC"
-COMPILERS="g++-12 clang++-15 icpx"
+if [ -z ${COMPILERS+x} ]; 
+then
+  COMPILERS="g++-12 clang++-15 icpx"
+fi
 
 STANDARDS="-std=c++11 -std=c++14 -std=c++17 -std=c++20"
 
@@ -125,8 +128,6 @@ STANDARDS="-std=c++11 -std=c++14 -std=c++17 -std=c++20"
 
 #~ TESTS="test_skiplists test_stacks test_queues"
 TESTS="test_stacks test_queues"
-
-cd ../examples/containers
 
 for arg in $COMPILERS
 do
