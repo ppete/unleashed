@@ -5,11 +5,12 @@
 
 namespace ucl
 {
-#if __cplusplus >= 202002L
+#if defined(__cpp_lib_jthread)
   using thread = std::jthread;
-#else /* !C++20 */
+#else
   using thread = std::thread;
-#endif /* !C++20 */
+#endif /* __has_cpp_attribute */
+
 }
 
 #endif /* _UCL_THREAD */

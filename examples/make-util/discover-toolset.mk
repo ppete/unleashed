@@ -11,6 +11,7 @@ ifeq ($(UCL_HOME),)
   export UCL_HOME:=$(MYLOCATION)/../..
 endif
 
+UCL_TEST_BIN?=$(COMPDIR)/ucltest.bin
 
 ##
 ## auto set system
@@ -190,7 +191,7 @@ ifeq ($(TESTNATIVE),1)
 ifeq ($(CPUARCH),)
   ARCHFLAG:=$(ARCHFLAG)=native
 
-  SUCCESS:=$(shell $(CXX) $(ARCHFLAG) -c $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)
+  SUCCESS:=$(shell $(CXX) $(ARCHFLAG) -c -o $(UCL_TEST_BIN) $(UCL_HOME)/examples/make-util/test-howdy.cc >/dev/null 2>&1; echo $$?)
 
   ifeq ($(SUCCESS),0)
     export CPUARCH:=$(ARCHFLAG)
@@ -203,7 +204,7 @@ endif
 ifeq ($(CXX17_ENABLED),)
   ARCHFLAG:=$(ARCHFLAG)=native
 
-  SUCCESS:=$(shell $(CXX) -std=c++17 -c $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)
+  SUCCESS:=$(shell $(CXX) -std=c++17 -c -o $(UCL_TEST_BIN) $(UCL_HOME)/examples/make-util/test-howdy.cc >/dev/null 2>&1; echo $$?)
 
   ifeq ($(SUCCESS),0)
     export CXX17_ENABLED:=1
@@ -214,7 +215,7 @@ endif
 ##
 ## test for libatomic
 
-SUCCESS:=$(shell $(CXX) -latomic $(UCL_HOME)/examples/make-util/test-hello.cc -o /dev/null >/dev/null 2>&1; echo $$?)
+SUCCESS:=$(shell $(CXX) -latomic -o $(UCL_TEST_BIN) $(UCL_HOME)/examples/make-util/test-howdy.cc >/dev/null 2>&1; echo $$?)
 
 ifeq ($(SUCCESS),0)
   export LIBATOMIC:=-latomic
@@ -231,3 +232,5 @@ else
   OPTFLAG:=$(DBGOPTFLAG)
   $(info *** debug-mode: changed OPTFLAG to $(DBGOPTFLAG))
 endif
+
+$(shell rm -f $(UCL_TEST_BIN))

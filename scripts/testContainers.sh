@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 test_make()
 {
@@ -9,8 +9,8 @@ test_make()
 
   outdir=$COMPDIR
 
-  echo "make TEST_CONTAINER=$container TEST_ALLOC=$allocator -f Makefile.$selector"
-  make TEST_CONTAINER="$container" TEST_ALLOC="$allocator" -f Makefile."$selector" -C ../examples/containers
+  echo "$MAKE TEST_CONTAINER=$container TEST_ALLOC=$allocator -f Makefile.$selector"
+  $MAKE TEST_CONTAINER="$container" TEST_ALLOC="$allocator" -f Makefile."$selector" -C ../examples/containers
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
@@ -30,8 +30,8 @@ test_simple_make()
 
   outdir="$COMPDIR"
 
-  echo "make TEST_NAME=$testname TARGET=$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin -f Makefile.$selector -C ../examples/containers"
-  make TEST_NAME="$testname" TARGET="$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin" -f Makefile."$selector" -C ../examples/containers
+  echo "$MAKE TEST_NAME=$testname TARGET=$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin -f Makefile.$selector -C ../examples/containers"
+  $MAKE TEST_NAME="$testname" TARGET="$outdir/$selector-$2-$3-$comp-$CXXVERSION.bin" -f Makefile."$selector" -C ../examples/containers
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
@@ -52,8 +52,8 @@ test_htm_make()
 
   outdir="$COMPDIR"
 
-  echo "make TEST_ALLOC=$allocator TEST_HTM=1 -f Makefile.$selector"
-  make TEST_ALLOC="$allocator" TEST_HTM=1 -f Makefile."$selector"
+  echo "$MAKE TEST_ALLOC=$allocator TEST_HTM=1 -f Makefile.$selector"
+  $MAKE TEST_ALLOC="$allocator" TEST_HTM=1 -f Makefile."$selector"
   res="$?"
 
   if [[ "$expected" -ne "$res" ]]; then
@@ -110,16 +110,21 @@ test_queues()
 
 
 ###
-# COMPILERS
-#~ COMPILERS="$COMPILERS g++-5 g++-6 g++-7 g++-8"
-#~ COMPILERS="$COMPILERS clang++-4.0 clang++-6.0 clang++-7"
-#~ COMPILERS="$COMPILERS icpc xlc++ sunCC"
-if [ -z ${COMPILERS+x} ]; 
+
+if [ -z ${MAKE+x} ]; 
 then
-  COMPILERS="g++-12 clang++-15 icpx"
+  MAKE="make"
 fi
 
-STANDARDS="-std=c++11 -std=c++14 -std=c++17 -std=c++20"
+if [ -z ${COMPILERS+x} ]; 
+then
+  COMPILERS="g++ clang++ icpx"
+fi
+
+if [ -z ${STANDARDS+x} ]; 
+then
+  STANDARDS="-std=c++11 -std=c++20 -std=c++14 -std=c++17"
+fi
 
 ###
 # DATA STRUCTURE TESTS

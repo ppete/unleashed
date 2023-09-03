@@ -3,23 +3,29 @@ include ../make-util/discover-toolset.mk
 
 COMP=$(notdir $(CXX))
 
+TEST_LOCK ?= TEST_TTAS
 COMPDIR ?= ./
-CXXVERSION ?= -std=c++11
+SOURCE := testQueue.cc
 TARGET ?= $(COMPDIR)/testLock-$(TEST_LOCK)-$(COMP)$(CXXVERSION).bin
+DEFINES := -D$(TEST_NAME)=1
+INCLUDE := $(UCL_HOME)/include
+FLAGS := $(THREADFLAG)
+LIBS := $(LIBATOMIC)
+CXXVERSION ?= -std=c++11
 
 INCLUDE:=$(UCL_HOME)/include
 
 # TEST_LOCK: TEST_TTAS, TEST_TTAS_BO, TEST_ANDERSON, TEST_COUNTING, 
 #            TEST_CLH, TEST_MCS, TEST_MUTEX
-TEST_LOCK ?= TEST_TTAS
-CXXFLAGS := $(CXXVERSION) -D$(TEST_LOCK)=1 $(WARNFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(DBGFLAG)
+
+CXXFLAGS := $(CXXVERSION) -D$(TEST_LOCK)=1 $(WARNFLAG) $(OPTFLAG) $(THREADFLAG) $(CPUARCH) $(DBGFLAG) $(LIBS)
 
 .PHONY: test clean
 
 test: $(TARGET)
 
 $(TARGET): testLock.cc lock-selection.hpp $(INCLUDE)/ucl/spinlock.hpp Makefile.spinlock
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE) $< -o $@
+	$(CXX) $(CXXFLAGS) -I$(INCLUDE) -o $@ $<
 
 clean:
 	rm -f $(COMPDIR)/testLock*.o $(COMPDIR)/testLock*.bin
