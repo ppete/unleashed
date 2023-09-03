@@ -54,6 +54,10 @@ ifeq ($(TARGETARCH),)
   ifneq (,$(findstring arm64,$(THISSYSTEM)))
     TARGETARCH:=ARM64
   endif
+
+  ifneq (,$(findstring aarch64,$(THISSYSTEM)))
+    TARGETARCH:=ARM64
+  endif
 endif
 
 
@@ -95,10 +99,12 @@ ifeq ($(TOOLSET),)
     else ifeq ($(TARGETARCH),SPARC)
       ARCHFLAG := -mcpu
     else
-      # x86, arm
+      # x86, arm, ..
       ARCHFLAG := -march
 
-      export HTMFLAG  ?= -mrtm
+      ifeq ($(TARGETARCH),x86_64) 
+        export HTMFLAG  ?= -mrtm
+      endif
     endif
   endif
 endif
